@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WiSense-Twin — Developer Telemetry Dashboard</title>
+  <meta name="description" content="Real-time developer dashboard for WiSense-Twin spatial state telemetry and motion detection." />
+  <style>
+    :root {
+      --bg-base: #0a0e17;
+      --bg-surface: #111827;
+      --bg-surface-elevated: #1e293b;
+      --bg-surface-subtle: #0f172a;
+      --border-subtle: #334155;
+      --border-focus: #38bdf8;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --emerald-500: #10b981;
+      --emerald-400: #34d399;
+      --emerald-900: rgba(16, 185, 129, 0.15);
+      --cyan-500: #06b6d4;
+      --cyan-400: #22d3ee;
+      --cyan-900: rgba(6, 182, 212, 0.15);
+      --amber-500: #f59e0b;
+      --amber-900: rgba(245, 158, 11, 0.15);
+      --rose-500: #f43f5e;
+      --rose-900: rgba(244, 63, 94, 0.15);
+      --indigo-500: #6366f1;
+      --indigo-900: rgba(99, 102, 241, 0.15);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      line-height: 1.5;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    header {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: var(--shadow-card);
+    }
+
+    .brand-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .brand-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-primary);
+    }
+
+    .brand-badge {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      background: var(--indigo-900);
+      color: var(--indigo-500);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius-sm);
+    }
+
+    .brand-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+    }
+
+    .connection-panel {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      background: var(--bg-surface-subtle);
+      padding: 0.5rem 0.75rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .url-input-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .url-input-wrap label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .ws-input {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      padding: 0.4rem 0.75rem;
+      border-radius: var(--radius-sm);
+      min-width: 220px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .ws-input:focus {
+      border-color: var(--border-focus);
+    }
+
+    .btn {
+      font-family: var(--font-sans);
+      font-size: 0.825rem;
+      font-weight: 600;
+      padding: 0.4rem 0.9rem;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .btn-connect {
+      background: var(--cyan-500);
+      color: #042f2e;
+    }
+
+    .btn-connect:hover:not(:disabled) {
+      background: var(--cyan-400);
+      transform: translateY(-1px);
+    }
+
+    .btn-disconnect {
+      background: var(--bg-surface-elevated);
+      color: var(--rose-500);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-disconnect:hover:not(:disabled) {
+      background: var(--rose-900);
+      border-color: var(--rose-500);
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .reconnect-control {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+    }
+
+    .status-badge.connected {
+      background: var(--emerald-900);
+      color: var(--emerald-400);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .status-badge.reconnecting {
+      background: var(--amber-900);
+      color: var(--amber-500);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    .status-badge.disconnected {
+      background: var(--rose-900);
+      color: var(--rose-500);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .status-badge.connected .status-dot,
+    .status-badge.reconnecting .status-dot {
+      animation: pulse-dot 1.8s infinite ease-in-out;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .alert-banner {
+      background: rgba(244, 63, 94, 0.1);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      border-radius: var(--radius-md);
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      font-size: 0.85rem;
+      color: #fecdd3;
+    }
+
+    .alert-banner.hidden {
+      display: none;
+    }
+
+    .alert-icon {
+      font-size: 1.1rem;
+    }
+
+    /* Primary Telemetry Cards Grid */
+    .primary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .telemetry-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: var(--shadow-card);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .telemetry-card:hover {
+      border-color: #475569;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-label {
+      font-size: 0.775rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+
+    .card-field-name {
+      font-size: 0.725rem;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      background: var(--bg-surface-subtle);
+      padding: 0.15rem 0.4rem;
+      border-radius: var(--radius-sm);
+    }
+
+    .card-value-container {
+      margin: 0.5rem 0;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+    }
+
+    .card-value {
+      font-size: 1.85rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .card-value.null-value {
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .indicator-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.9rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.95rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      letter-spacing: 0.02em;
+    }
+
+    .indicator-pill.active-motion {
+      background: var(--emerald-900);
+      color: var(--emerald-400);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.25);
+    }
+
+    .indicator-pill.inactive-motion {
+      background: var(--bg-surface-subtle);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .indicator-pill.active-presence {
+      background: var(--cyan-900);
+      color: var(--cyan-400);
+      border: 1px solid rgba(6, 182, 212, 0.4);
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.25);
+    }
+
+    .indicator-pill.inactive-presence {
+      background: var(--bg-surface-subtle);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .card-footer-note {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border-top: 1px solid rgba(51, 65, 85, 0.5);
+      padding-top: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Dynamic Zone Bar Section */
+    .zone-section {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1.5rem;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .zone-section-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+
+    .zone-section-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .zone-section-desc {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .dynamic-zones-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      min-height: 52px;
+      align-items: center;
+      padding: 0.5rem 0;
+    }
+
+    .zone-pill {
+      flex: 1;
+      min-width: 100px;
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.2rem;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .zone-pill-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .zone-pill-number {
+      font-size: 1.25rem;
+      font-weight: 800;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+    }
+
+    .zone-pill.active {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(99, 102, 241, 0.2));
+      border: 1px solid var(--cyan-400);
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.35);
+      transform: translateY(-2px);
+    }
+
+    .zone-pill.active .zone-pill-label {
+      color: var(--cyan-400);
+    }
+
+    .zone-pill.active .zone-pill-number {
+      color: #ffffff;
+    }
+
+    .zone-empty-state {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-style: italic;
+      padding: 0.5rem 0;
+    }
+
+    /* Secondary Telemetry Strip */
+    .secondary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+
+    .metric-tile {
+      background: var(--bg-surface-subtle);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .metric-tile-label {
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .metric-tile-val {
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+    }
+
+    /* Stream Feed / Log Section */
+    .feed-section {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1.5rem;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .feed-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .feed-title-group {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .feed-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .feed-counter {
+      font-size: 0.75rem;
+      font-family: var(--font-mono);
+      background: var(--bg-surface-elevated);
+      color: var(--text-secondary);
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .feed-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .feed-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .table-container {
+      overflow-x: auto;
+      max-height: 280px;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      background: var(--bg-base);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.775rem;
+      font-family: var(--font-mono);
+      text-align: left;
+    }
+
+    thead th {
+      background: var(--bg-surface-elevated);
+      color: var(--text-secondary);
+      padding: 0.5rem 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--border-subtle);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.7rem;
+    }
+
+    tbody td {
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.4);
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    tbody tr:hover {
+      background: rgba(30, 41, 59, 0.4);
+    }
+
+    .td-tag-true {
+      color: var(--emerald-400);
+      font-weight: 600;
+    }
+
+    .td-tag-false {
+      color: var(--text-muted);
+    }
+
+    .td-tag-zone {
+      color: var(--cyan-400);
+      font-weight: 700;
+    }
+
+    footer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 1rem;
+      margin-top: auto;
+      gap: 0.5rem;
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header & Connection Controls -->
+  <header>
+    <div class="brand-group">
+      <div class="brand-title">
+        <span>WiSense-Twin</span>
+        <span class="brand-badge">Section 12 Developer Telemetry</span>
+      </div>
+      <div class="brand-subtitle">
+        Real-time spatial state observer for WebSocket wire contract stream
+      </div>
+    </div>
+
+    <div class="connection-panel">
+      <div class="url-input-wrap">
+        <label for="ws-url-input">Endpoint</label>
+        <input
+          type="text"
+          id="ws-url-input"
+          class="ws-input"
+          value="ws://127.0.0.1:8765"
+          placeholder="ws://127.0.0.1:8765"
+          spellcheck="false"
+        />
+      </div>
+
+      <button id="btn-connect" class="btn btn-connect">Connect</button>
+      <button id="btn-disconnect" class="btn btn-disconnect" disabled>Disconnect</button>
+
+      <label class="reconnect-control" title="Automatically attempt reconnect if socket disconnects">
+        <input type="checkbox" id="auto-reconnect-toggle" checked />
+        <span>Auto-reconnect</span>
+      </label>
+
+      <div id="connection-status-pill" class="status-badge disconnected">
+        <span class="status-dot"></span>
+        <span id="connection-status-text">Disconnected</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Disconnected Alert Banner -->
+  <div id="disconnected-banner" class="alert-banner">
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <span class="alert-icon">⚠️</span>
+      <span>
+        <strong>Disconnected from State Publisher:</strong> Showing honest "no active data" state.
+        Stale last-known states are cleared to avoid misleading operators.
+      </span>
+    </div>
+    <span style="font-size: 0.75rem; opacity: 0.8;">Awaiting socket handshake</span>
+  </div>
+
+  <!-- Primary StateMessage Telemetry Cards -->
+  <main class="primary-grid">
+
+    <!-- Card 1: is_motion -->
+    <div class="telemetry-card" id="card-motion">
+      <div class="card-header">
+        <span class="card-label">Instantaneous Motion</span>
+        <span class="card-field-name">is_motion</span>
+      </div>
+      <div class="card-value-container">
+        <div id="val-is-motion" class="indicator-pill inactive-motion">
+          <span>—</span>
+        </div>
+      </div>
+      <div class="card-footer-note">
+        Instantaneous threshold detection with dual-threshold hysteresis
+      </div>
+    </div>
+
+    <!-- Card 2: presence -->
+    <div class="telemetry-card" id="card-presence">
+      <div class="card-header">
+        <span class="card-label">Sustained Presence</span>
+        <span class="card-field-name">presence</span>
+      </div>
+      <div class="card-value-container">
+        <div id="val-presence" class="indicator-pill inactive-presence">
+          <span>—</span>
+        </div>
+      </div>
+      <div class="card-footer-note">
+        Motion-derived presence sustained across configurable decay timeout
+      </div>
+    </div>
+
+    <!-- Card 3: zone_id -->
+    <div class="telemetry-card" id="card-zone">
+      <div class="card-header">
+        <span class="card-label">Spatial Zone ID</span>
+        <span class="card-field-name">zone_id</span>
+      </div>
+      <div class="card-value-container">
+        <span id="val-zone-id" class="card-value null-value">—</span>
+      </div>
+      <div class="card-footer-note">
+        1-indexed partition. Strictly motion-gated (null when is_motion is False)
+      </div>
+    </div>
+
+    <!-- Card 4: separation_margin -->
+    <div class="telemetry-card" id="card-margin">
+      <div class="card-header">
+        <span class="card-label">Separation Margin</span>
+        <span class="card-field-name">separation_margin</span>
+      </div>
+      <div class="card-value-container">
+        <span id="val-separation-margin" class="card-value null-value">—</span>
+      </div>
+      <div class="card-footer-note">
+        Distance gap (d₂ - d₁) between winning &amp; runner-up zone. Never confidence.
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Dynamic Zone Discovery Indicator -->
+  <section class="zone-section">
+    <div class="zone-section-header">
+      <div class="zone-section-title">
+        <span>Spatial Zone Visualization</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">(Dynamic Discovery)</span>
+      </div>
+      <div class="zone-section-desc">
+        Renders dynamically based on highest zone_id observed. Wire protocol carries no fixed zone count.
+      </div>
+    </div>
+    <div id="dynamic-zones-container" class="dynamic-zones-bar">
+      <div class="zone-empty-state" id="zones-placeholder">
+        Awaiting spatial motion events to discover active zones...
+      </div>
+    </div>
+  </section>
+
+  <!-- Secondary Metadata & Diagnostics Strip -->
+  <section class="secondary-grid">
+    <div class="metric-tile">
+      <span class="metric-tile-label">Schema Version</span>
+      <span id="val-schema-version" class="metric-tile-val">—</span>
+    </div>
+
+    <div class="metric-tile">
+      <span class="metric-tile-label">Calibration Version</span>
+      <span id="val-calibration-version" class="metric-tile-val">—</span>
+    </div>
+
+    <div class="metric-tile">
+      <span class="metric-tile-label">Wire Epoch Timestamp</span>
+      <span id="val-raw-timestamp" class="metric-tile-val" style="font-size: 0.95rem;">—</span>
+    </div>
+
+    <div class="metric-tile">
+      <span class="metric-tile-label">Publication Latency</span>
+      <span id="val-latency" class="metric-tile-val">—</span>
+    </div>
+
+    <div class="metric-tile">
+      <span class="metric-tile-label">Ingestion Rate</span>
+      <span id="val-packet-rate" class="metric-tile-val">0.0 Hz</span>
+    </div>
+  </section>
+
+  <!-- Raw Telemetry Feed Table -->
+  <section class="feed-section">
+    <div class="feed-header">
+      <div class="feed-title-group">
+        <span class="feed-title">StateMessage Wire Stream</span>
+        <span id="packet-counter" class="feed-counter">0 msgs received</span>
+      </div>
+      <div class="feed-controls">
+        <label class="feed-toggle">
+          <input type="checkbox" id="pause-feed-toggle" />
+          <span>Pause Stream Log</span>
+        </label>
+        <button id="btn-clear-feed" class="btn" style="background: var(--bg-surface-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+          Clear Log
+        </button>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Time (UTC)</th>
+            <th>Schema</th>
+            <th>is_motion</th>
+            <th>presence</th>
+            <th>zone_id</th>
+            <th>separation_margin</th>
+            <th>calib_ver</th>
+            <th>raw payload</th>
+          </tr>
+        </thead>
+        <tbody id="telemetry-tbody">
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
+              No messages received yet. Connect to a running WebSocketStatePublisher.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div>
+      WiSense-Twin Architecture &bull; Local Edge Sensing &bull; Device-Free RF Intelligence
+    </div>
+    <div>
+      Health status telemetry (Section 11) is intentionally decoupled; integration deferred to Section 21.
+    </div>
+  </footer>
+
+  <!-- Self-Contained Application Logic -->
+  <script>
+    (function () {
+      "use strict";
+
+      // DOM Elements
+      const wsUrlInput = document.getElementById("ws-url-input");
+      const btnConnect = document.getElementById("btn-connect");
+      const btnDisconnect = document.getElementById("btn-disconnect");
+      const autoReconnectToggle = document.getElementById("auto-reconnect-toggle");
+      const statusPill = document.getElementById("connection-status-pill");
+      const statusText = document.getElementById("connection-status-text");
+      const disconnectedBanner = document.getElementById("disconnected-banner");
+
+      // Primary Metric Elements
+      const valIsMotion = document.getElementById("val-is-motion");
+      const valPresence = document.getElementById("val-presence");
+      const valZoneId = document.getElementById("val-zone-id");
+      const valSeparationMargin = document.getElementById("val-separation-margin");
+
+      // Secondary Elements
+      const valSchemaVersion = document.getElementById("val-schema-version");
+      const valCalibrationVersion = document.getElementById("val-calibration-version");
+      const valRawTimestamp = document.getElementById("val-raw-timestamp");
+      const valLatency = document.getElementById("val-latency");
+      const valPacketRate = document.getElementById("val-packet-rate");
+      const dynamicZonesContainer = document.getElementById("dynamic-zones-container");
+      const zonesPlaceholder = document.getElementById("zones-placeholder");
+
+      // Feed Elements
+      const packetCounter = document.getElementById("packet-counter");
+      const pauseFeedToggle = document.getElementById("pause-feed-toggle");
+      const btnClearFeed = document.getElementById("btn-clear-feed");
+      const telemetryTbody = document.getElementById("telemetry-tbody");
+
+      // Runtime State
+      let socket = null;
+      let reconnectTimer = null;
+      let reconnectAttempt = 0;
+      let manualDisconnect = false;
+      let highestZoneSeen = 0;
+      let totalMessages = 0;
+      let windowMessageCount = 0;
+      let rateCalculationInterval = null;
+      const MAX_LOG_ROWS = 25;
+
+      // Rate measurement interval (1 Hz)
+      rateCalculationInterval = setInterval(() => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          valPacketRate.textContent = `${windowMessageCount.toFixed(1)} Hz`;
+        } else {
+          valPacketRate.textContent = "0.0 Hz";
+        }
+        windowMessageCount = 0;
+      }, 1000);
+
+      function setConnectionStatus(state, message) {
+        statusPill.className = "status-badge " + state;
+        statusText.textContent = message;
+
+        if (state === "connected") {
+          disconnectedBanner.classList.add("hidden");
+          btnConnect.disabled = true;
+          btnDisconnect.disabled = false;
+          wsUrlInput.disabled = true;
+        } else {
+          disconnectedBanner.classList.remove("hidden");
+          btnConnect.disabled = false;
+          btnDisconnect.disabled = true;
+          wsUrlInput.disabled = false;
+          resetLiveDisplayToHonestState();
+        }
+      }
+
+      function resetLiveDisplayToHonestState() {
+        // Prevent stale last-known data from being passed off as active state
+        valIsMotion.className = "indicator-pill inactive-motion";
+        valIsMotion.innerHTML = "<span>—</span>";
+
+        valPresence.className = "indicator-pill inactive-presence";
+        valPresence.innerHTML = "<span>—</span>";
+
+        valZoneId.className = "card-value null-value";
+        valZoneId.textContent = "—";
+
+        valSeparationMargin.className = "card-value null-value";
+        valSeparationMargin.textContent = "—";
+
+        valSchemaVersion.textContent = "—";
+        valCalibrationVersion.textContent = "—";
+        valRawTimestamp.textContent = "—";
+        valLatency.textContent = "—";
+
+        // Deactivate all dynamic zone pills
+        const pills = dynamicZonesContainer.querySelectorAll(".zone-pill");
+        pills.forEach((p) => p.classList.remove("active"));
+      }
+
+      function updateDynamicZones(currentZoneId, isMotion) {
+        if (typeof currentZoneId === "number" && currentZoneId > highestZoneSeen) {
+          highestZoneSeen = currentZoneId;
+        }
+
+        if (highestZoneSeen === 0) {
+          if (zonesPlaceholder) zonesPlaceholder.style.display = "block";
+          return;
+        }
+
+        if (zonesPlaceholder) zonesPlaceholder.style.display = "none";
+
+        // Reconcile pills up to highestZoneSeen
+        for (let z = 1; z <= highestZoneSeen; z++) {
+          let pill = document.getElementById(`dynamic-zone-pill-${z}`);
+          if (!pill) {
+            pill = document.createElement("div");
+            pill.id = `dynamic-zone-pill-${z}`;
+            pill.className = "zone-pill";
+            pill.innerHTML = `
+              <span class="zone-pill-label">Zone</span>
+              <span class="zone-pill-number">${z}</span>
+            `;
+            dynamicZonesContainer.appendChild(pill);
+          }
+
+          // Active zone highlighting: strictly when is_motion is true and zone_id == z
+          if (isMotion && currentZoneId === z) {
+            pill.classList.add("active");
+          } else {
+            pill.classList.remove("active");
+          }
+        }
+      }
+
+      function appendFeedRow(msg, rawJson) {
+        if (pauseFeedToggle.checked) return;
+
+        // If placeholder row exists, remove it
+        if (totalMessages === 1) {
+          telemetryTbody.innerHTML = "";
+        }
+
+        const tr = document.createElement("tr");
+
+        const date = new Date(msg.timestamp * 1000);
+        const timeStr = date.toISOString().substring(11, 23);
+
+        const motionHtml = msg.is_motion
+          ? `<span class="td-tag-true">True</span>`
+          : `<span class="td-tag-false">False</span>`;
+
+        const presenceHtml = msg.presence
+          ? `<span class="td-tag-true">True</span>`
+          : `<span class="td-tag-false">False</span>`;
+
+        const zoneHtml = msg.zone_id !== null && msg.zone_id !== undefined
+          ? `<span class="td-tag-zone">Zone ${msg.zone_id}</span>`
+          : `<span style="color: var(--text-muted)">—</span>`;
+
+        const marginHtml = typeof msg.separation_margin === "number"
+          ? msg.separation_margin.toFixed(4)
+          : `<span style="color: var(--text-muted)">—</span>`;
+
+        const calibHtml = msg.calibration_version !== null && msg.calibration_version !== undefined
+          ? `v${msg.calibration_version}`
+          : `<span style="color: var(--text-muted)">—</span>`;
+
+        const jsonShort = rawJson.length > 50 ? rawJson.substring(0, 50) + "..." : rawJson;
+
+        tr.innerHTML = `
+          <td>${timeStr}</td>
+          <td>${msg.schema_version ?? 1}</td>
+          <td>${motionHtml}</td>
+          <td>${presenceHtml}</td>
+          <td>${zoneHtml}</td>
+          <td>${marginHtml}</td>
+          <td>${calibHtml}</td>
+          <td style="color: var(--text-muted); font-size: 0.7rem;" title="${rawJson}">${jsonShort}</td>
+        `;
+
+        telemetryTbody.insertBefore(tr, telemetryTbody.firstChild);
+
+        while (telemetryTbody.children.length > MAX_LOG_ROWS) {
+          telemetryTbody.removeChild(telemetryTbody.lastChild);
+        }
+      }
+
+      function handleStateMessage(payload) {
+        let msg;
+        try {
+          msg = typeof payload === "string" ? JSON.parse(payload) : payload;
+        } catch (err) {
+          console.error("Failed to parse JSON StateMessage:", err, payload);
+          return;
+        }
+
+        totalMessages++;
+        windowMessageCount++;
+        packetCounter.textContent = `${totalMessages} msgs received`;
+
+        // 1. is_motion
+        if (msg.is_motion === true) {
+          valIsMotion.className = "indicator-pill active-motion";
+          valIsMotion.innerHTML = `<span>● Active Motion</span>`;
+        } else {
+          valIsMotion.className = "indicator-pill inactive-motion";
+          valIsMotion.innerHTML = `<span>Quiet (False)</span>`;
+        }
+
+        // 2. presence
+        if (msg.presence === true) {
+          valPresence.className = "indicator-pill active-presence";
+          valPresence.innerHTML = `<span>● Sustained</span>`;
+        } else {
+          valPresence.className = "indicator-pill inactive-presence";
+          valPresence.innerHTML = `<span>Clear (False)</span>`;
+        }
+
+        // 3. zone_id (honest display: never fabricate a zone when null)
+        if (msg.zone_id !== null && msg.zone_id !== undefined) {
+          valZoneId.className = "card-value";
+          valZoneId.textContent = `Zone ${msg.zone_id}`;
+        } else {
+          valZoneId.className = "card-value null-value";
+          valZoneId.textContent = "—";
+        }
+
+        // 4. separation_margin (honestly labeled, never confidence)
+        if (typeof msg.separation_margin === "number") {
+          valSeparationMargin.className = "card-value";
+          valSeparationMargin.textContent = msg.separation_margin.toFixed(4);
+        } else {
+          valSeparationMargin.className = "card-value null-value";
+          valSeparationMargin.textContent = "—";
+        }
+
+        // 5. Secondary fields
+        valSchemaVersion.textContent = msg.schema_version !== undefined ? `v${msg.schema_version}` : "—";
+        valCalibrationVersion.textContent = msg.calibration_version !== null && msg.calibration_version !== undefined
+          ? `v${msg.calibration_version}`
+          : "—";
+
+        if (typeof msg.timestamp === "number") {
+          valRawTimestamp.textContent = msg.timestamp.toFixed(3);
+          const nowSec = Date.now() / 1000.0;
+          const latencyMs = Math.max(0, (nowSec - msg.timestamp) * 1000.0);
+          valLatency.textContent = `${latencyMs.toFixed(1)} ms`;
+        } else {
+          valRawTimestamp.textContent = "—";
+          valLatency.textContent = "—";
+        }
+
+        // 6. Dynamic zone bar
+        updateDynamicZones(msg.zone_id, msg.is_motion);
+
+        // 7. Message log table
+        appendFeedRow(msg, typeof payload === "string" ? payload : JSON.stringify(payload));
+      }
+
+      function connect() {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+
+        manualDisconnect = false;
+        const targetUrl = wsUrlInput.value.trim();
+
+        if (!targetUrl) {
+          alert("Please enter a valid WebSocket URL (e.g. ws://127.0.0.1:8765)");
+          return;
+        }
+
+        setConnectionStatus("reconnecting", "Connecting...");
+
+        try {
+          socket = new WebSocket(targetUrl);
+        } catch (err) {
+          console.error("WebSocket instantiation error:", err);
+          setConnectionStatus("disconnected", "Invalid URL / Error");
+          scheduleReconnect();
+          return;
+        }
+
+        socket.onopen = function () {
+          reconnectAttempt = 0;
+          setConnectionStatus("connected", `Connected (${targetUrl})`);
+        };
+
+        socket.onmessage = function (event) {
+          handleStateMessage(event.data);
+        };
+
+        socket.onclose = function (event) {
+          socket = null;
+          if (manualDisconnect) {
+            setConnectionStatus("disconnected", "Disconnected");
+          } else {
+            setConnectionStatus("reconnecting", `Disconnected (code ${event.code})`);
+            scheduleReconnect();
+          }
+        };
+
+        socket.onerror = function (event) {
+          console.warn("WebSocket error observed:", event);
+        };
+      }
+
+      function disconnect() {
+        manualDisconnect = true;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        reconnectAttempt = 0;
+        if (socket) {
+          socket.close();
+          socket = null;
+        }
+        setConnectionStatus("disconnected", "Disconnected");
+      }
+
+      function scheduleReconnect() {
+        if (!autoReconnectToggle.checked || manualDisconnect) {
+          setConnectionStatus("disconnected", "Disconnected");
+          return;
+        }
+
+        reconnectAttempt++;
+        const delay = Math.min(2500, 1000 + reconnectAttempt * 500);
+        setConnectionStatus("reconnecting", `Reconnecting (attempt ${reconnectAttempt} in ${(delay / 1000).toFixed(1)}s)...`);
+
+        reconnectTimer = setTimeout(() => {
+          connect();
+        }, delay);
+      }
+
+      // Event Listeners
+      btnConnect.addEventListener("click", () => {
+        reconnectAttempt = 0;
+        connect();
+      });
+
+      btnDisconnect.addEventListener("click", () => {
+        disconnect();
+      });
+
+      wsUrlInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !btnConnect.disabled) {
+          reconnectAttempt = 0;
+          connect();
+        }
+      });
+
+      btnClearFeed.addEventListener("click", () => {
+        telemetryTbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">
+              Feed cleared. Waiting for next message.
+            </td>
+          </tr>
+        `;
+      });
+
+      // Auto-connect on page load
+      connect();
+
+    })();
+  </script>
+</body>
+</html>

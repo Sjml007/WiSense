@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Testing & Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# SQLite & Runtime Data files
+*.db
+*.sqlite
+*.sqlite3
+backend_pipeline/data/*.db
+!backend_pipeline/data/.gitkeep
+
+# ESP32 / ESP-IDF build artifacts
+esp32_firmware/**/build/
+esp32_firmware/**/sdkconfig.old
+esp32_firmware/**/.pio/
+esp32_firmware/**/managed_components/
+esp32_firmware/**/dependencies.lock
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and environment variables
+*.log
+.env
+.env.*
+!.env.example

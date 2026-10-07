@@ -1,0 +1,11 @@
+{
+  "websocket_host": "127.0.0.1",
+  "websocket_port": 8765,
+  "database_path": "data/wisense.db",
+  "log_level": "INFO",
+  "log_format": "text",
+  "csi_source_mode": "synthetic",
+  "synthetic_scenario_path": "config/synthetic_scenarios/example.json",
+  "serial_port": null,
+  "serial_baud_rate": null
+}

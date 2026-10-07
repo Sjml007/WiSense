@@ -1,0 +1,43 @@
+menu "WiSense Transmitter Configuration"
+
+    config TX_BEACON_PACKET_RATE
+        int "Transmission rate (packets/second)"
+        default 100
+        range 1 500
+        help
+            Target rate of WiFi broadcast frames transmitted per second (Hz).
+            Default is 100 packets/sec (10 ms period), matching the esp-csi
+            spike baseline. This rate provides sufficient temporal resolution
+            for human micro-Doppler motion sensing while remaining well within
+            ESP-NOW's throughput limits. Configurable via menuconfig to support
+            empirical rate comparison experiments (e.g., 50 pps vs. 100 pps).
+
+    config TX_BEACON_WIFI_CHANNEL
+        int "WiFi Channel (1-13)"
+        default 11
+        range 1 13
+        help
+            2.4 GHz WiFi primary channel for packet transmission. Channel 11 is
+            selected by default as a standard non-overlapping channel with low
+            ambient co-channel interference in our laboratory baseline, and
+            matches the channel used during the initial hardware spikes.
+
+    config TX_BEACON_LOG_INTERVAL_SEC
+        int "Serial status log interval (seconds)"
+        default 1
+        range 1 60
+        help
+            Frequency in seconds at which transmission health statistics
+            ([TX_STAT] total count, period packets, device uptime, achieved pps,
+            and free heap) are output to the serial monitor.
+
+    config TX_BEACON_PAYLOAD_SIZE
+        int "Payload size (bytes)"
+        default 32
+        range 4 250
+        help
+            Size in bytes of the ESP-NOW payload. The first 4 bytes contain the
+            32-bit packet sequence number (matching rx_id in csi_recv), followed
+            by sender timestamp and telemetry metadata.
+
+endmenu

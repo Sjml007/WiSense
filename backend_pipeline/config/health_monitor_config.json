@@ -1,0 +1,4 @@
+{
+  "stale_after_seconds": 2.0,
+  "disconnected_after_seconds": 5.0
+}

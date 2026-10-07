@@ -1,0 +1,5 @@
+{
+  "database_path": "data/wisense.db",
+  "timeout_seconds": 10.0,
+  "wal_mode": true
+}

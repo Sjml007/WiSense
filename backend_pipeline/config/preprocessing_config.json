@@ -1,0 +1,22 @@
+{
+  "filters": [
+    {
+      "type": "hampel",
+      "enabled": true,
+      "parameters": {
+        "window_size": 7,
+        "threshold_multiplier": 3.0,
+        "min_mad": 1e-6,
+        "filter_phases": false
+      }
+    },
+    {
+      "type": "moving_average",
+      "enabled": true,
+      "parameters": {
+        "window_size": 5,
+        "filter_phases": false
+      }
+    }
+  ]
+}

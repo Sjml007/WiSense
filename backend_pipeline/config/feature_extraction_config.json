@@ -1,0 +1,7 @@
+{
+  "extractor_type": "variance",
+  "window_size_samples": 20,
+  "window_step_samples": 1,
+  "emit_partial": false,
+  "ddof": 1
+}

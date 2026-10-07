@@ -1,0 +1,5 @@
+{
+  "metric": "cosine_distance",
+  "min_separation_margin": 0.05,
+  "separability_warning_threshold": 0.20
+}

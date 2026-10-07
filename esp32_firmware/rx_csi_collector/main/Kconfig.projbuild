@@ -1,0 +1,58 @@
+menu "WiSense CSI Receiver Configuration"
+
+    config RX_CSI_UART_BAUDRATE
+        int "UART baud rate (bps)"
+        default 921600
+        range 115200 2000000
+        help
+            Baud rate for serial communication with host/Python reader.
+            Default is 921600 baud (~92.16 kB/s), which provides >50% headroom
+            for 100 binary frames/sec (~41.6 kB/s). Configurable via menuconfig
+            in compliance with the project-wide constraint against hardcoded
+            operational parameters.
+
+    config RX_CSI_WIFI_CHANNEL
+        int "WiFi Channel (1-13)"
+        default 11
+        range 1 13
+        help
+            2.4 GHz primary WiFi channel to tune the receiver front-end,
+            matching CONFIG_TX_BEACON_WIFI_CHANNEL. Channel 11 is selected by
+            default for low ambient co-channel interference in our laboratory baseline.
+
+    config RX_CSI_FILTER_MAC
+        string "Transmitter MAC Filter (hex format XX:XX:XX:XX:XX:XX)"
+        default "1a:00:00:00:00:00"
+        help
+            Expected source MAC address of the transmitter beacon (tx_beacon).
+            Frames from any other source MAC are discarded immediately inside
+            the WiFi CSI callback (<2 microseconds), isolating ambient traffic.
+
+    config RX_CSI_QUEUE_DEPTH
+        int "FreeRTOS CSI queue depth (frames)"
+        default 32
+        range 8 128
+        help
+            Maximum number of CSI frames buffered between the high-priority
+            WiFi RX callback and the UART transmission task. At 100 pps, a depth
+            of 32 provides 320 ms of buffering against UART transmission bursts.
+
+    config RX_CSI_LOG_INTERVAL_SEC
+        int "Serial status log interval (seconds)"
+        default 1
+        range 1 60
+        help
+            Frequency in seconds at which reception health statistics
+            ([RX_STAT] count, window packets, uptime, achieved pps, dropped,
+            ambient filtered, and free heap) are output to the serial monitor.
+
+    config RX_CSI_OUTPUT_BINARY
+        bool "Enable binary framed CSI streaming"
+        default y
+        help
+            When enabled, transmits structured binary frames with 4-byte magic sync
+            marker, fixed metadata header, raw CSI payload, and CRC-16 checksum
+            over UART. If disabled, receiver operates in silent/diagnostic mode,
+            logging only periodic [RX_STAT] telemetry.
+
+endmenu

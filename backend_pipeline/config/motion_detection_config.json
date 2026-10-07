@@ -1,0 +1,5 @@
+{
+  "enter_threshold": 0.10,
+  "exit_threshold": 0.05,
+  "presence_timeout_seconds": 3.0
+}

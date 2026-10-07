@@ -1,0 +1,23 @@
+{
+  "scenario_name": "zone_2_motion_walkthrough",
+  "description": "Baseline quiet environment with motion injected into Zone 2 between t=5s and t=10s, and quiet otherwise.",
+  "sample_rate_hz": 20.0,
+  "subcarrier_count": 64,
+  "zone_count": 4,
+  "duration_seconds": 15.0,
+  "realtime": false,
+  "random_seed": 42,
+  "baseline_amplitude": 30.0,
+  "noise_std": 0.35,
+  "baseline_rssi": -46.0,
+  "channel": 6,
+  "events": [
+    {
+      "start_time_s": 5.0,
+      "end_time_s": 10.0,
+      "zone_id": 2,
+      "motion_type": "walking",
+      "intensity": 1.0
+    }
+  ]
+}
