@@ -237,5 +237,9 @@ class NearestSignatureZoneClassifier:
         Yields:
             `ZoneClassification` instances.
         """
-        for feature, motion in zip(features, motion_states):
+        for feature, motion in zip(features, motion_states, strict=True):
+            assert feature.window_end_timestamp == motion.timestamp, (
+                f"FeatureVector timestamp ({feature.window_end_timestamp}) does not match "
+                f"MotionState timestamp ({motion.timestamp})"
+            )
             yield self.classify(feature, motion)

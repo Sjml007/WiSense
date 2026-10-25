@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "description": "WiSense StateMessage v1 contract fixtures and expected parse results across runtimes",
+  "asymmetry_notes": {
+    "missing_schema_version": "Python from_dict defaults schema_version to 1 if absent; Unreal strictly requires schema_version == 1",
+    "unsupported_schema_version": "Python allows schema_version >= 1 without checking == 1; Unreal strictly enforces schema_version == 1",
+    "zone_as_string": "Python int(data['zone_id']) coerces string digits to int; Unreal rejects non-numeric types",
+    "zone_fractional": "Python int(data['zone_id']) truncates float 2.5 to int 2; Unreal rejects non-integer numbers"
+  },
+  "fixtures": [
+    {
+      "name": "active_zone",
+      "file": "active_zone.json",
+      "expected_unreal": true,
+      "expected_python": true,
+      "description": "Valid state with active motion and confident zone assignment"
+    },
+    {
+      "name": "ambiguous_motion",
+      "file": "ambiguous_motion.json",
+      "expected_unreal": true,
+      "expected_python": true,
+      "description": "Valid active motion where zone is ambiguous (zone_id and margin null)"
+    },
+    {
+      "name": "presence_hold",
+      "file": "presence_hold.json",
+      "expected_unreal": true,
+      "expected_python": true,
+      "description": "Valid quiet period during presence timeout hold (motion false, presence true)"
+    },
+    {
+      "name": "quiet",
+      "file": "quiet.json",
+      "expected_unreal": true,
+      "expected_python": true,
+      "description": "Valid completely idle state (motion false, presence false)"
+    },
+    {
+      "name": "legacy_occupied_format",
+      "file": "legacy_occupied_format.json",
+      "expected_unreal": false,
+      "expected_python": false,
+      "description": "Legacy prototype format lacking schema_version, timestamp, and distinct motion flags"
+    },
+    {
+      "name": "missing_schema_version",
+      "file": "missing_schema_version.json",
+      "expected_unreal": false,
+      "expected_python": true,
+      "description": "Missing required schema_version field"
+    },
+    {
+      "name": "unsupported_schema_version",
+      "file": "unsupported_schema_version.json",
+      "expected_unreal": false,
+      "expected_python": true,
+      "description": "Unsupported protocol schema_version (expected 1, got 2)"
+    },
+    {
+      "name": "zone_as_string",
+      "file": "zone_as_string.json",
+      "expected_unreal": false,
+      "expected_python": true,
+      "description": "Zone ID encoded as string rather than integer"
+    },
+    {
+      "name": "zone_zero",
+      "file": "zone_zero.json",
+      "expected_unreal": false,
+      "expected_python": false,
+      "description": "Invalid non-positive zone ID (zones are 1-indexed, zone_id >= 1)"
+    },
+    {
+      "name": "zone_fractional",
+      "file": "zone_fractional.json",
+      "expected_unreal": false,
+      "expected_python": true,
+      "description": "Invalid fractional zone ID (must be an integer)"
+    },
+    {
+      "name": "motion_false_with_zone",
+      "file": "motion_false_with_zone.json",
+      "expected_unreal": false,
+      "expected_python": false,
+      "description": "Motion gating violation: zone_id must be null when is_motion is false"
+    },
+    {
+      "name": "malformed_json",
+      "file": "malformed_json.json",
+      "expected_unreal": false,
+      "expected_python": false,
+      "description": "Malformed JSON syntax"
+    }
+  ]
+}

@@ -420,3 +420,46 @@ class TestEndToEnd8StagePipelineIntegration:
         for c in post_motion:
             assert c.is_motion is False
             assert c.zone_id is None
+
+    def test_classify_stream_strict_zip_length_mismatch(self) -> None:
+        """Verify classify_stream with strict=True raises ValueError when stream lengths mismatch."""
+        path = (
+            Path(__file__).resolve().parent.parent
+            / "config"
+            / "calibration_profiles"
+            / "default_calibration.json"
+        )
+        profile = CalibrationProfile.from_json_file(path)
+        classifier = NearestSignatureZoneClassifier(profile)
+        features = [
+            make_test_feature(2.0, (0.1,) * 64, aggregate_variance=0.1),
+            make_test_feature(2.05, (0.1,) * 64, aggregate_variance=0.1),
+        ]
+        # Only 1 motion state provided for 2 features
+        motion_states = [
+            MotionState(timestamp=2.0, is_motion=False, presence=False, variance_at_detection=0.1),
+        ]
+
+        with pytest.raises(ValueError):
+            list(classifier.classify_stream(features, motion_states))
+
+    def test_classify_stream_timestamp_mismatch_raises_assertion_error(self) -> None:
+        """Verify classify_stream raises AssertionError when FeatureVector and MotionState timestamps differ."""
+        path = (
+            Path(__file__).resolve().parent.parent
+            / "config"
+            / "calibration_profiles"
+            / "default_calibration.json"
+        )
+        profile = CalibrationProfile.from_json_file(path)
+        classifier = NearestSignatureZoneClassifier(profile)
+        features = [
+            make_test_feature(2.0, (0.1,) * 64, aggregate_variance=0.1),
+        ]
+        # Motion state timestamp is 2.5, mismatched with feature timestamp 2.0
+        motion_states = [
+            MotionState(timestamp=2.5, is_motion=False, presence=False, variance_at_detection=0.1),
+        ]
+
+        with pytest.raises(AssertionError, match="FeatureVector timestamp .* does not match MotionState timestamp"):
+            list(classifier.classify_stream(features, motion_states))

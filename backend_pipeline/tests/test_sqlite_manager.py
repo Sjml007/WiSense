@@ -470,7 +470,8 @@ class TestEndToEnd8StagePipelinePersistenceIntegration:
         # Step 7: Convert to EventLogRecords under a shared session run_id
         session_run_id = "run_session_e2e_full_001"
         event_records: list[EventLogRecord] = []
-        for fv, ms, zc in zip(feature_vectors, motion_states, classifications):
+        for fv, ms, zc in zip(feature_vectors, motion_states, classifications, strict=True):
+            assert fv.window_end_timestamp == ms.timestamp == zc.timestamp
             rec = EventLogRecord(
                 run_id=session_run_id,
                 event_timestamp=zc.timestamp,

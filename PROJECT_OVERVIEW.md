@@ -31,12 +31,13 @@ it's for context, not a queue to work through unprompted.
 | 13 | ESP32 transmitter firmware | done |
 | 14 | ESP32 CSI receiver firmware | done |
 | 15 | Real hardware integration (swap synthetic → real source) | done |
-| 16 | Unreal Engine project setup | not started |
-| 17 | UE5 WebSocket client | not started |
-| 18 | UE5 JSON parsing | not started |
-| 19 | UE5 zone visualization | not started |
-| 20 | UE5 avatar/indicator behavior | not started |
-| 21 | End-to-end integration | not started |
+| 16 | Adopt prototype | pending verification |
+| 17 | Contract reconciliation | code complete, awaiting compile and test confirmation |
+| 17B | Legacy Unreal zone-protocol output adapter (backend only) | done |
+| 18 | Data-driven zones, connection handling, and stale watchdog | not started |
+| 19 | Verify against the live stream and measure latency | not started |
+| 20 | Zone indicator | not started |
+| 21 | End-to-end integration | backend wiring done, hardware run pending |
 | 22 | Performance testing | not started |
 | 23 | Experimental validation (accuracy, confusion matrix) | not started |
 | 24 | Final documentation | not started |
@@ -160,6 +161,21 @@ Violating any of these silently is worse than asking — flag it instead.
   bad trailers, or torn byte sequences (e.g., `walking_01.txt`) are skipped and increment `corrupt_frame_count`, seeking the next magic sync marker.
 - **Serial fault recovery and automatic reconnection are strictly deferred.** Consistent with the project's deferred-scope pattern,
   `SerialCSISource` implements framing resilience without automated port reconnection logic.
+- **Section 17 Unreal client consumes StateMessage v1 only, with no occupied semantics.** Downstream UE5 digital twin client models built under Section 17 strictly enforce authoritative `StateMessage` v1 schemas (`is_motion`, `presence`, `zone_id`, `separation_margin`), rejecting deprecated `occupied` boolean or legacy 2-field payloads. In contrast, the historical prototype Unreal build consumes the optional legacy zone protocol adapter (Section 17B).
+- **Unreal client visuals are C++-only and runtime-spawned.** Zone representations must be spawned programmatically at runtime without relying on pre-placed Editor level assets.
+- **Unreal client engine version is strictly 5.6.** Target rules and include orders (`EngineIncludeOrderVersion.Unreal5_6`) are locked to Unreal Engine 5.6 (BuildSettingsVersion.V5).
+- **Unreal client wire parser enforces strict type validation without permissive coercion.** Unlike Python's dataclass parser, the C++ client rejects strings for numeric fields, rejects fractional zone indices, mandates explicit schema_version == 1, and enforces motion-gating invariants on the wire.
+- **Unreal digital twin client resets to honest idle upon connection close and error.** When the WebSocket connection closes or encounters an error, all active zone indicators extinguish immediately without retaining stale spatial visuals.
+- **Config-driven stale-stream watchdog (Section 18).** If no valid message is received for N seconds, the client resets to idle and shows a stale state, implemented without per-frame Tick.
+- **Initial zone visuals must spawn hidden by default.** To prevent misleading operators before receiving the first live state decision, all runtime-spawned zone visuals initialize in a hidden state.
+- **StateMessage v1 remains the authoritative contract.** The legacy zone protocol (`{"zone": k, "occupied": bool}`) is an optional output adapter, never a replacement.
+- **`occupied` in legacy zone protocol denotes presence-held last active zone only.** It must never be described or marketed as literal human occupancy detection.
+- **Legacy zone protocol enforces single-person mutual exclusivity.** At most one zone can be occupied at any time; zone transitions emit the previous zone's `occupied=false` before the new zone's `occupied=true`.
+- **Initial full snapshot is sent upon client connection.** Newly connected clients receive a complete snapshot across all zones (1..zone_count) to reliably initialize state (e.g., hiding cubes in the Unreal prototype).
+- **Prototype Unreal build lacks stale-stream handling (Section 17B).** The prototype Unreal build has no stale-stream handling, and backend-side resets on stall are deferred to Section 21.
+- **Fail-fast hardware validation (Section 21).** In hardware mode, `motion_config_path` must be explicitly set (never silently inherit synthetic thresholds). On the first hardware record, if a calibration profile is loaded, `profile.subcarrier_count` must strictly equal `record.subcarrier_count` (raising a descriptive error naming both counts and explaining that a profile must be calibrated on this hardware). In no-zone mode (`calibration_profile_path=None`), the legacy wire format is rejected at startup.
+- **No silent use of synthetic-scale thresholds (Section 21).** Physical CSI variance scales differ by orders of magnitude from synthetic simulation; deployments must never silently run with default synthetic thresholds. Hardware startup rejects missing motion configuration.
+- **Stall handling by wire format (Section 21).** When no record arrives for `disconnected_after_seconds`, `runner.reset()` is called so analysis windows never straddle the gap. In `legacy_zone` mode, the bridge emits all-false once to extinguish prototype cube visuals. In `state_message_v1` mode, the backend publishes nothing because silence is the authoritative watchdog signal for the Section 17/18 UE5 digital twin client.
 
 ## Interfaces / contracts
 `src/wisense_backend/contracts/` is the source of truth for shared interfaces (e.g.

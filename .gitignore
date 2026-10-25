@@ -50,3 +50,12 @@ desktop.ini
 .env
 .env.*
 !.env.example
+
+# Unreal Engine 5 artifacts (unreal_digital_twin)
+unreal_digital_twin/Binaries/
+unreal_digital_twin/Intermediate/
+unreal_digital_twin/Saved/
+unreal_digital_twin/DerivedDataCache/
+unreal_digital_twin/.vs/
+unreal_digital_twin/*.sln
+

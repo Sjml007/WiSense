@@ -1,0 +1,18 @@
+{
+  "websocket_host": "127.0.0.1",
+  "websocket_port": 8765,
+  "database_path": "data/wisense.db",
+  "log_level": "INFO",
+  "log_format": "text",
+  "csi_source_mode": "hardware",
+  "serial_port": "COM4",
+  "serial_baud_rate": 921600,
+  "config_dir": "config",
+  "calibration_profile_path": null,
+  "motion_config_path": "config/motion_detection_config_hardware.json",
+  "expected_sample_rate_hz": 100.0,
+  "health_log_interval_seconds": 10.0,
+  "stat_log_interval_seconds": 5.0,
+  "db_flush_interval_seconds": 2.0,
+  "db_flush_batch_size": 50
+}

@@ -1,0 +1,24 @@
+# Unreal Engine 5 Project .gitignore
+# Tracks: Source/, Config/, Content/, and *.uproject
+# Ignores: Build artifacts, temporary caches, and generated IDE project files
+
+# Unreal Engine build and runtime artifacts
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+
+# Visual Studio / IDE temporary files
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# JetBrains Rider & Visual Studio Code project files
+.idea/
+.vscode/
+
+# Build logs and crash reports
+*.log
+CrashReportClient/

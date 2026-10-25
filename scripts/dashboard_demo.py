@@ -35,6 +35,10 @@ from wisense_backend.classification.nearest_signature_classifier import (
     NearestSignatureZoneClassifier,
     ZoneClassifierConfig,
 )
+from wisense_backend.communication.legacy_zone_adapter import (
+    LegacyZoneAdapter,
+    LegacyZoneBridge,
+)
 from wisense_backend.communication.websocket_server import (
     WebSocketConfig,
     WebSocketStatePublisher,
@@ -110,6 +114,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Run without realtime wall-clock pacing (for headless/automated tests)",
+    )
+    parser.add_argument(
+        "--wire-format",
+        type=str,
+        choices=["state_message_v1", "legacy_zone"],
+        default="state_message_v1",
+        help="Wire protocol format to publish ('state_message_v1' or 'legacy_zone')",
     )
     return parser.parse_args(argv)
 
@@ -255,6 +266,8 @@ def run_demo(
     realtime: bool = True,
     ready_event: Optional[threading.Event] = None,
     min_clients: int = 0,
+    wire_format: str = "state_message_v1",
+    resync_interval_seconds: float = 5.0,
 ) -> None:
     """Run the live WebSocket streaming verification demo."""
     stop_event = False
@@ -285,26 +298,50 @@ def run_demo(
     )
 
     # 2. Configure WebSocket Publisher
-    ws_config = WebSocketConfig(host=host, port=port)
+    ws_config = WebSocketConfig(
+        host=host,
+        port=port,
+        message_format=wire_format,
+        legacy_resync_interval_seconds=resync_interval_seconds,
+    )
     publisher = WebSocketStatePublisher(ws_config)
     publisher.start()
 
     actual_port = publisher.actual_port or port
     ws_url = f"ws://{host}:{actual_port}"
 
+    # 3. Setup LegacyZoneBridge if legacy_zone wire format requested
+    bridge: Optional[LegacyZoneBridge] = None
+    if wire_format == "legacy_zone":
+        adapter = LegacyZoneAdapter(zone_count=zone_count)
+        bridge = LegacyZoneBridge(
+            adapter=adapter,
+            publisher=publisher,
+            resync_interval_seconds=resync_interval_seconds,
+        )
+
     if ready_event is not None:
         ready_event.set()
 
     sys.stdout.write("\n" + "=" * 70 + "\n")
-    sys.stdout.write("  WiSense-Twin Developer Dashboard Verification Demo (Section 12)\n")
+    sys.stdout.write("  WiSense-Twin Developer Dashboard Verification Demo (Section 12/17B)\n")
     sys.stdout.write("=" * 70 + "\n")
     sys.stdout.write(f"  WebSocket Endpoint: {ws_url}\n")
-    sys.stdout.write(f"  Dashboard File:     {ROOT_DIR / 'dashboard' / 'index.html'}\n")
-    sys.stdout.write("  Instructions:\n")
-    sys.stdout.write("    1. Open dashboard/index.html in your web browser\n")
-    sys.stdout.write(f"    2. Ensure endpoint field is set to: {ws_url}\n")
-    sys.stdout.write("    3. Click 'Connect' to observe real-time StateMessage telemetry\n")
-    sys.stdout.write("    4. Press Ctrl+C in this terminal to stop cleanly\n")
+    sys.stdout.write(f"  Wire Format:        {wire_format}\n")
+    if wire_format == "legacy_zone":
+        sys.stdout.write("  Notice:             Legacy Unreal Zone Protocol Active\n")
+        sys.stdout.write("  Instructions:\n")
+        sys.stdout.write(f"    1. Connect the Unreal Engine prototype client to: {ws_url}\n")
+        sys.stdout.write("    2. Observe incremental zone updates: {\"zone\": <int>, \"occupied\": <bool>}\n")
+        sys.stdout.write("    3. Note: The web browser dashboard (/dashboard/index.html) speaks StateMessage v1 only\n")
+        sys.stdout.write("    4. Press Ctrl+C in this terminal to stop cleanly\n")
+    else:
+        sys.stdout.write(f"  Dashboard File:     {ROOT_DIR / 'dashboard' / 'index.html'}\n")
+        sys.stdout.write("  Instructions:\n")
+        sys.stdout.write("    1. Open dashboard/index.html in your web browser\n")
+        sys.stdout.write(f"    2. Ensure endpoint field is set to: {ws_url}\n")
+        sys.stdout.write("    3. Click 'Connect' to observe real-time StateMessage telemetry\n")
+        sys.stdout.write("    4. Press Ctrl+C in this terminal to stop cleanly\n")
     sys.stdout.write("=" * 70 + "\n\n")
 
     if min_clients > 0:
@@ -367,7 +404,10 @@ def run_demo(
                         calibration_version=profile.calibration_version,
                     )
 
-                    publisher.publish(state_msg)
+                    if bridge is not None:
+                        bridge.publish_state(state_msg)
+                    else:
+                        publisher.publish(state_msg)
                     total_frames_published += 1
 
                     # Periodic console reporting (every ~1 second)
@@ -391,6 +431,14 @@ def run_demo(
                 break
 
     finally:
+        if bridge is not None:
+            try:
+                bridge.close()
+                # Best-effort bounded flush (200ms): in-flight all-false close frames
+                # drain across OS and network buffers to connected clients before server shutdown.
+                time.sleep(0.20)
+            except Exception as e:
+                sys.stderr.write(f"Error during bridge close: {e}\n")
         publisher.stop()
         sys.stdout.write(f"\nPublisher stopped. Total frames published: {total_frames_published}\n")
 
@@ -408,6 +456,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             profile_path=args.calibration_profile,
             loop=not args.no_loop,
             realtime=not args.fast,
+            wire_format=args.wire_format,
         )
         return 0
     except Exception as err:

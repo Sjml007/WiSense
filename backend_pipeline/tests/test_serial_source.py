@@ -290,6 +290,7 @@ class TestSerialCSISource:
             csi_source_mode="hardware",
             serial_port="COM4",
             serial_baud_rate=921600,
+            motion_config_path="config/motion_detection_config.json",
             log_level="INFO",
         )
         app = Application(config=cfg)

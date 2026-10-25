@@ -45,6 +45,14 @@ class AppConfig:
     synthetic_scenario_path: Optional[str] = "config/synthetic_scenarios/example.json"
     serial_port: Optional[str] = None
     serial_baud_rate: Optional[int] = None
+    config_dir: str = "config"
+    calibration_profile_path: Optional[str] = None
+    motion_config_path: Optional[str] = None
+    expected_sample_rate_hz: float = 20.0
+    health_log_interval_seconds: float = 10.0
+    stat_log_interval_seconds: float = 5.0
+    db_flush_interval_seconds: float = 1.0
+    db_flush_batch_size: int = 50
 
     def __post_init__(self) -> None:
         """Validate invariant configuration constraints."""
@@ -116,6 +124,64 @@ class AppConfig:
             if not isinstance(self.serial_port, str) or not self.serial_port.strip():
                 raise ValueError("serial_port must be a non-empty string if specified")
 
+        # Validate config_dir
+        if not self.config_dir or not isinstance(self.config_dir, str) or not self.config_dir.strip():
+            raise ValueError("config_dir must be a non-empty string")
+
+        # Validate calibration_profile_path if specified
+        if self.calibration_profile_path is not None:
+            if not isinstance(self.calibration_profile_path, str) or not self.calibration_profile_path.strip():
+                raise ValueError("calibration_profile_path must be a non-empty string if specified")
+
+        # Validate motion_config_path if specified
+        if self.motion_config_path is not None:
+            if not isinstance(self.motion_config_path, str) or not self.motion_config_path.strip():
+                raise ValueError("motion_config_path must be a non-empty string if specified")
+
+        # Validate expected_sample_rate_hz
+        if (
+            isinstance(self.expected_sample_rate_hz, bool)
+            or not isinstance(self.expected_sample_rate_hz, (int, float))
+            or self.expected_sample_rate_hz <= 0.0
+        ):
+            raise ValueError(
+                f"expected_sample_rate_hz must be a positive number, got {self.expected_sample_rate_hz}"
+            )
+
+        # Validate interval timers and batch sizes
+        if (
+            isinstance(self.health_log_interval_seconds, bool)
+            or not isinstance(self.health_log_interval_seconds, (int, float))
+            or self.health_log_interval_seconds <= 0.0
+        ):
+            raise ValueError(
+                f"health_log_interval_seconds must be a positive number, got {self.health_log_interval_seconds}"
+            )
+        if (
+            isinstance(self.stat_log_interval_seconds, bool)
+            or not isinstance(self.stat_log_interval_seconds, (int, float))
+            or self.stat_log_interval_seconds <= 0.0
+        ):
+            raise ValueError(
+                f"stat_log_interval_seconds must be a positive number, got {self.stat_log_interval_seconds}"
+            )
+        if (
+            isinstance(self.db_flush_interval_seconds, bool)
+            or not isinstance(self.db_flush_interval_seconds, (int, float))
+            or self.db_flush_interval_seconds <= 0.0
+        ):
+            raise ValueError(
+                f"db_flush_interval_seconds must be a positive number, got {self.db_flush_interval_seconds}"
+            )
+        if (
+            isinstance(self.db_flush_batch_size, bool)
+            or not isinstance(self.db_flush_batch_size, int)
+            or self.db_flush_batch_size <= 0
+        ):
+            raise ValueError(
+                f"db_flush_batch_size must be a positive integer, got {self.db_flush_batch_size}"
+            )
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
         """Parse an AppConfig instance from a dictionary.
@@ -140,6 +206,36 @@ class AppConfig:
             except (ValueError, TypeError):
                 raise ValueError(f"serial_baud_rate must be an integer, got {raw_baud!r}")
 
+        raw_sr = data.get("expected_sample_rate_hz", 20.0)
+        try:
+            expected_sample_rate_hz = float(raw_sr)
+        except (ValueError, TypeError):
+            raise ValueError(f"expected_sample_rate_hz must be a number, got {raw_sr!r}")
+
+        raw_health_int = data.get("health_log_interval_seconds", 10.0)
+        try:
+            health_log_interval_seconds = float(raw_health_int)
+        except (ValueError, TypeError):
+            raise ValueError(f"health_log_interval_seconds must be a number, got {raw_health_int!r}")
+
+        raw_stat_int = data.get("stat_log_interval_seconds", 5.0)
+        try:
+            stat_log_interval_seconds = float(raw_stat_int)
+        except (ValueError, TypeError):
+            raise ValueError(f"stat_log_interval_seconds must be a number, got {raw_stat_int!r}")
+
+        raw_flush_int = data.get("db_flush_interval_seconds", 1.0)
+        try:
+            db_flush_interval_seconds = float(raw_flush_int)
+        except (ValueError, TypeError):
+            raise ValueError(f"db_flush_interval_seconds must be a number, got {raw_flush_int!r}")
+
+        raw_batch_size = data.get("db_flush_batch_size", 50)
+        try:
+            db_flush_batch_size = int(raw_batch_size)
+        except (ValueError, TypeError):
+            raise ValueError(f"db_flush_batch_size must be an integer, got {raw_batch_size!r}")
+
         return cls(
             websocket_host=str(data.get("websocket_host", "127.0.0.1")),
             websocket_port=websocket_port,
@@ -156,6 +252,22 @@ class AppConfig:
                 str(data["serial_port"]) if data.get("serial_port") is not None else None
             ),
             serial_baud_rate=serial_baud_rate,
+            config_dir=str(data.get("config_dir", "config")),
+            calibration_profile_path=(
+                str(data["calibration_profile_path"])
+                if data.get("calibration_profile_path") is not None
+                else None
+            ),
+            motion_config_path=(
+                str(data["motion_config_path"])
+                if data.get("motion_config_path") is not None
+                else None
+            ),
+            expected_sample_rate_hz=expected_sample_rate_hz,
+            health_log_interval_seconds=health_log_interval_seconds,
+            stat_log_interval_seconds=stat_log_interval_seconds,
+            db_flush_interval_seconds=db_flush_interval_seconds,
+            db_flush_batch_size=db_flush_batch_size,
         )
 
     @classmethod

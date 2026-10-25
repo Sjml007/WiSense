@@ -1,4 +1,6 @@
 {
   "host": "127.0.0.1",
-  "port": 8765
+  "port": 8765,
+  "message_format": "state_message_v1",
+  "legacy_resync_interval_seconds": 5.0
 }
