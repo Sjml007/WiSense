@@ -130,15 +130,48 @@ def build_scenario_config(
     subcarrier_count: int,
     sample_rate_hz: float,
     realtime: bool = True,
+    wire_format: str = "state_message_v1",
 ) -> ScenarioConfig:
-    """Construct a repeatable multi-zone scenario with quiet intervals and presence tails.
+    """Construct a multi-zone scenario.
 
-    Timeline:
-    - 0.0s .. 3.0s: Quiet baseline (all zones clear)
-    - For each zone z in 1..zone_count:
-        * 4.0s active walking motion in zone z
-        * 3.0s quiet transition (presence decay timeout verification)
+    For wire_format == 'legacy_zone':
+    Constructs a seamless, continuous 32-second sequence cycling through all zones
+    (32.0 / zone_count seconds per zone, exactly 8.0s for 4 zones) with no quiet
+    intervals, ensuring exactly one zone is occupied at any time.
+
+    For default (state_message_v1):
+    Constructs a scenario with quiet baseline and quiet intervals for presence
+    decay timeout verification in the developer dashboard.
     """
+    if wire_format == "legacy_zone":
+        events: list[ScenarioEvent] = []
+        zone_duration = 32.0 / zone_count
+        for i in range(zone_count):
+            events.append(
+                ScenarioEvent(
+                    start_time_s=i * zone_duration,
+                    end_time_s=(i + 1) * zone_duration,
+                    zone_id=i + 1,
+                    motion_type="walking",
+                    intensity=1.0,
+                )
+            )
+        total_duration = 32.0
+        return ScenarioConfig(
+            scenario_name="dashboard_demo_legacy_zone_continuous",
+            description=f"Continuous sequential motion across {zone_count} zones for Unreal prototype verification",
+            sample_rate_hz=sample_rate_hz,
+            subcarrier_count=subcarrier_count,
+            zone_count=zone_count,
+            duration_seconds=total_duration,
+            realtime=realtime,
+            random_seed=42,
+            baseline_amplitude=30.0,
+            noise_std=0.25,
+            events=tuple(events),
+        )
+
+    # Default / state_message_v1 timeline with quiet intervals for web dashboard
     events: list[ScenarioEvent] = []
     current_time = 3.0
     motion_duration = 4.0
@@ -282,6 +315,8 @@ def run_demo(
             signal.signal(signal.SIGINT, _sigint_handler)
             if hasattr(signal, "SIGTERM"):
                 signal.signal(signal.SIGTERM, _sigint_handler)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, _sigint_handler)
         except (ValueError, AttributeError):
             pass
 
@@ -298,11 +333,14 @@ def run_demo(
     )
 
     # 2. Configure WebSocket Publisher
+    # For legacy_zone mode, disable periodic resynchronization bursts (0.0s) so that
+    # only genuine zone transitions are sent over the wire without mid-zone snapshot noise.
+    actual_resync = 0.0 if wire_format == "legacy_zone" else resync_interval_seconds
     ws_config = WebSocketConfig(
         host=host,
         port=port,
         message_format=wire_format,
-        legacy_resync_interval_seconds=resync_interval_seconds,
+        legacy_resync_interval_seconds=actual_resync,
     )
     publisher = WebSocketStatePublisher(ws_config)
     publisher.start()
@@ -317,7 +355,7 @@ def run_demo(
         bridge = LegacyZoneBridge(
             adapter=adapter,
             publisher=publisher,
-            resync_interval_seconds=resync_interval_seconds,
+            resync_interval_seconds=actual_resync,
         )
 
     if ready_event is not None:
@@ -364,6 +402,7 @@ def run_demo(
                 subcarrier_count=subcarrier_count,
                 sample_rate_hz=sample_rate_hz,
                 realtime=realtime,
+                wire_format=wire_format,
             )
 
             # Initialize fresh per-run pipeline filters
