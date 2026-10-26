@@ -15,18 +15,18 @@ The system strictly decouples **Pipeline Orchestration** from **I/O and Networki
 
 ```mermaid
 graph TD
-    A[CSI Source<br/>Serial or Synthetic] -->|CSIRecord| B[Application Shell]
-    B -->|process record| C[PipelineRunner]
+    A["CSI Source<br/>Serial or Synthetic"] -->|CSIRecord| B["Application Shell"]
+    B -->|process record| C["PipelineRunner"]
     subgraph "Pure Algorithmic Core"
-        C --> D[1. Preprocessing Pipeline<br/>Hampel + Moving Average]
-        D --> E[2. Variance Feature Extractor<br/>Sliding Window W=20]
-        E --> F[3. Threshold Motion Detector<br/>Dual-Threshold Hysteresis]
-        F --> G[4. Zone Classifier (Optional)<br/>Nearest Euclidean Signature]
+        C --> D["1. Preprocessing Pipeline<br/>Hampel + Moving Average"]
+        D --> E["2. Variance Feature Extractor<br/>Sliding Window W=20"]
+        E --> F["3. Threshold Motion Detector<br/>Dual-Threshold Hysteresis"]
+        F --> G["4. Zone Classifier (Optional)<br/>Nearest cosine_distance Signature"]
     end
     C -->|PipelineResult| B
-    B -->|Publish First| H[WebSocket Publisher / LegacyZoneBridge]
-    B -->|Buffer & Batch Insert| I[SQLite Database Manager]
-    B -->|Periodic Telemetry| J[SystemHealthMonitor & Periodic Stats]
+    B -->|Publish First| H["WebSocket Publisher / LegacyZoneBridge"]
+    B -->|Buffer & Batch Insert| I["SQLite Database Manager"]
+    B -->|Periodic Telemetry| J["SystemHealthMonitor & Periodic Stats"]
 ```
 
 ---
@@ -43,20 +43,20 @@ sequenceDiagram
     participant Pub as WebSocketStatePublisher
     participant DB as SQLiteDatabaseManager
 
-    Operator->>App: main.py / run()
-    App->>Cfg: Validate Invariants
+    Operator->>App: "main.py / run()"
+    App->>Cfg: "Validate Invariants"
     alt Hardware mode without explicit motion_config_path
-        App-->>Operator: ValueError: Hardware mode requires an explicit motion_config_path
+        App-->>Operator: "ValueError: Hardware mode requires an explicit motion_config_path"
     end
     alt No-zone mode with legacy_zone format
-        App-->>Operator: ValueError: Legacy zone output format requires a calibration profile
+        App-->>Operator: "ValueError: Legacy zone output format requires a calibration profile"
     end
-    App->>Pub: publisher.start()
-    App->>DB: db_manager.connect()
-    App->>Source: source.open()
-    Source-->>App: First CSIRecord
+    App->>Pub: "publisher.start()"
+    App->>DB: "db_manager.connect()"
+    App->>Source: "source.open()"
+    Source-->>App: "First CSIRecord"
     alt Profile loaded & profile.subcarrier_count != record.subcarrier_count
-        App-->>Operator: ValueError: Subcarrier count mismatch (names both counts)
+        App-->>Operator: "ValueError: Subcarrier count mismatch (names both counts)"
     end
 ```
 
@@ -88,7 +88,10 @@ flowchart TD
     J --> K
 ```
 
-### Latency Measurement Discipline:
+### Timestamp & Latency Measurement Discipline:
+- **`StateMessage.timestamp` (Window-End Frame Time)**:
+  `StateMessage.timestamp` is set strictly to `result.feature.window_end_timestamp` (the physical arrival time of the final CSI packet that closed the analysis window).
+  *Rationale*: Using the window-end timestamp aligns broadcast decisions with the physical observation time of the completing frame. This prevents misleading synthetic clock offsets, guarantees accurate host computation tracking ($t_{\text{host}} - t_{\text{record}}$), and allows downstream consumers (such as UE5 digital twin watchdog) to evaluate packet arrival staleness relative to physical transmit time rather than an arbitrary window midpoint or start time.
 - **`window_latency_ms`**: Physical latency floor imposed by the analysis window:
   $$\text{window\_latency\_ms} = \frac{W}{f_s} \times 1000\text{ ms}$$
   (e.g., $20 / 20\text{ Hz} \times 1000 = 1000.0\text{ ms}$).
@@ -130,17 +133,17 @@ sequenceDiagram
     participant Source as CSIRecordSource
     participant Pub as WebSocketStatePublisher
 
-    Caller->>App: stop()
-    App->>App: Set _stop_requested Event
+    Caller->>App: "stop()"
+    App->>App: "Set _stop_requested Event"
     critical Acquire _shutdown_lock
         alt Legacy wire format
-            App->>Bridge: bridge.close() (emit all-false)
+            App->>Bridge: "bridge.close() (emit all-false)"
         end
-        App->>DB: _flush_db() (flush remaining buffer)
-        App->>DB: db_manager.close()
-        App->>Source: source.close()
-        App->>App: sleep(0.05) (bounded TCP buffer drain)
-        App->>Pub: publisher.stop() (disconnect clients & close socket)
+        App->>DB: "_flush_db() (flush remaining buffer)"
+        App->>DB: "db_manager.close()"
+        App->>Source: "source.close()"
+        App->>App: "sleep(0.05) (bounded TCP buffer drain)"
+        App->>Pub: "publisher.stop() (disconnect clients & close socket)"
     end
 ```
 
@@ -160,34 +163,47 @@ sequenceDiagram
 {
   "websocket_host": "127.0.0.1",
   "websocket_port": 8765,
-  "database_path": "data/wisense_hardware.db",
+  "database_path": "data/wisense.db",
   "log_level": "INFO",
   "log_format": "text",
   "csi_source_mode": "hardware",
-  "synthetic_scenario_path": null,
   "serial_port": "COM4",
   "serial_baud_rate": 921600,
   "config_dir": "config",
   "calibration_profile_path": null,
-  "motion_config_path": "config/motion_detection_config_hardware.json",
-  "expected_sample_rate_hz": 20.0,
-  "health_log_interval_seconds": 5.0,
+  "motion_config_path": "config/motion_detection_config_hardware.example.json",
+  "expected_sample_rate_hz": 100.0,
+  "health_log_interval_seconds": 10.0,
   "stat_log_interval_seconds": 5.0,
-  "db_flush_interval_seconds": 1.0,
-  "db_flush_batch_size": 100
+  "db_flush_interval_seconds": 2.0,
+  "db_flush_batch_size": 50
 }
 ```
+
+### Motion Detection Calibration Heuristic (Empty Room Protocol):
+> [!IMPORTANT]
+> **Threshold Sensitivity & Dependence**:
+> Variance thresholds (`enter_threshold`, `exit_threshold`) only have meaning for the specific sliding window size (`window_size_samples`) and packet rate (`expected_sample_rate_hz`) they were observed with.
+> Threshold values must never be presented as measured physical constants or transferred across differing window configurations.
+>
+> **Labelled Calibration Heuristic**:
+> 1. Use the hardware feature config example (`feature_extraction_config_hardware.example.json`, specifying `window_size_samples: 100`, `window_step_samples: 5`, marked as a starting point representing about 1.0 s at 100 pps) via `config_dir`.
+> 2. **Record an empty room**: Run the application in no-zone mode for 60+ seconds with no human occupancy.
+> 3. Observe the empirical variance from the periodic stats logs:
+>    ```
+>    Pipeline stats: variance [min=0.034120, mean=0.089450, max=0.215430], records=...
+>    ```
+> 4. Note the observed empty-room maximum aggregate variance ($V_{\text{max\_quiet}}$).
+> 5. **Set Thresholds using the Heuristic**:
+>    - Set `exit_threshold` a little above the observed empty-room maximum:
+>      $$\text{exit\_threshold} \approx 1.2 \times V_{\text{max\_quiet}}$$
+>    - Set `enter_threshold` at about twice the `exit_threshold`:
+>      $$\text{enter\_threshold} \approx 2.0 \times \text{exit\_threshold}$$
+>      This provides a robust hysteresis deadband against boundary flicker.
+> 6. Copy or rename `motion_detection_config_hardware.example.json` to your active motion config with `"calibrated": true`, and verify in live walkthroughs.
 
 ### Execution Command:
 Run the application against the live serial stream for 30+ seconds in no-zone mode:
 ```bash
 python backend_pipeline/main.py --config config/system_config_hardware_example.json
 ```
-
-### Expected Output:
-1. Startup logs confirm `run_id` format `hardware-<timestamp>-<hex>`, `csi_source_mode: hardware`, and `calibration_profile_path: None (no-zone mode)`.
-2. Every 5 seconds, periodic stats report empirical subcarrier variances:
-   ```
-   Pipeline stats: variance [min=0.034120, mean=0.089450, max=0.215430], records=100, messages=81, source_errors=0, dropped_db_rows=0
-   ```
-3. Operators observe these baseline variance figures to empirically configure `enter_threshold` and `exit_threshold` in `config/motion_detection_config_hardware.json`.

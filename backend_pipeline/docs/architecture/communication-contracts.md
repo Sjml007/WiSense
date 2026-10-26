@@ -17,7 +17,7 @@ Each broadcast payload represents the spatial state derived from the pipeline's 
 | Field Name | Type | Nullable | Description | Invariant Rules |
 | :--- | :--- | :--- | :--- | :--- |
 | `schema_version` | Integer | No | Monotonically increasing protocol schema version. | Must be $\ge 1$ (currently `1`). |
-| `timestamp` | Float | No | UTC Unix epoch timestamp (seconds) of the classification window. | Must be $> 0.0$. |
+| `timestamp` | Float | No | UTC Unix epoch timestamp (seconds) of the classification window end (latest frame time). Represents the arrival time of the final CSI packet closing the analysis window ($t_{\text{frame}}$). Aligning the timestamp with window-end (frame) time rather than a window midpoint or start ensures accurate end-to-end computational latency tracking ($t_{\text{host}} - t_{\text{record}}$) and allows downstream consumers (UE5 watchdog) to evaluate link staleness directly against physical transmission time. | Must be $> 0.0$. |
 | `zone_id` | Integer | **Yes** | 1-indexed identifier of the predicted active zone ($1 \le \text{zone\_id} \le \text{zone\_count}$). | Must be `null` if `is_motion` is `false` or if ambiguous. |
 | `is_motion` | Boolean | No | Instantaneous motion indicator with hysteresis smoothing. | Strict `bool` (`true` or `false`). |
 | `presence` | Boolean | No | Sustained presence indicator held by configurable timeout. | Strict `bool` (`true` or `false`). |

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import socket
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,15 +218,11 @@ class WebSocketStatePublisher:
 
         self._started_event.clear()
 
-        # Bind the listening socket with SO_REUSEADDR
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self._config.host, self._config.port))
-        sock.listen()
-
+        # Bind the listening socket
         self._server = ws_server.serve(
             self._handle_client,
-            sock=sock,
+            self._config.host,
+            self._config.port,
         )
         self._actual_port = self._server.socket.getsockname()[1]
 

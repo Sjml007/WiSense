@@ -1,0 +1,5 @@
+{
+  "_comment": "Hardware feature extraction configuration (starting point; about 1 s at 100 pps). For use via config_dir.",
+  "window_size_samples": 100,
+  "window_step_samples": 5
+}

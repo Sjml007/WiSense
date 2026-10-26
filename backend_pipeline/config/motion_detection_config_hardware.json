@@ -1,6 +1,0 @@
-{
-  "_comment": "Hardware motion detection thresholds. Must be set from observed values recorded via the periodic stats line during empirical baseline calibration on real physical transceivers.",
-  "enter_threshold": 1.25,
-  "exit_threshold": 0.65,
-  "presence_timeout_seconds": 3.0
-}

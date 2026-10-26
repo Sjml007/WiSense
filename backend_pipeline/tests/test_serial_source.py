@@ -275,9 +275,10 @@ class TestSerialCSISource:
             rec_default = source.read_record(timeout=None)
             assert rec_default is None
 
-    def test_application_hardware_mode_run(self) -> None:
+    def test_application_hardware_mode_run(self, tmp_path: Path) -> None:
         """Verify Application running with csi_source_mode='hardware' ingests frames cleanly."""
         from wisense_backend.app import Application
+        from wisense_backend.communication.websocket_server import WebSocketConfig
         from wisense_backend.config.app_config import AppConfig
 
         payload = bytes([3, 4, 0, 5])  # 2 subcarriers
@@ -291,9 +292,11 @@ class TestSerialCSISource:
             serial_port="COM4",
             serial_baud_rate=921600,
             motion_config_path="config/motion_detection_config.json",
+            database_path=str(tmp_path / "serial_hw.db"),
             log_level="INFO",
         )
-        app = Application(config=cfg)
+        ws_cfg = WebSocketConfig(port=0)
+        app = Application(config=cfg, ws_config=ws_cfg)
         # Inject fake serial backend into source
         app.source._serial_factory = lambda port, baud, timeout: fake_ser
 

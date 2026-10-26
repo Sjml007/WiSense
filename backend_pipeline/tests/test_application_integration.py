@@ -64,18 +64,35 @@ def _build_fake_frames(subcarrier_count: int = 64, count: int = 25) -> bytes:
     return b"".join(build_frame(payload=payload, seq_num=i) for i in range(count))
 
 
+class ControlledClock:
+    """Controllable clock for deterministic time advancing in integration tests."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.time: float = start
+
+    def __call__(self) -> float:
+        return self.time
+
+    def advance(self, dt: float) -> None:
+        self.time += dt
+
+
 class ControlledTimeSource(CSIRecordSource):
     """CSIRecordSource that allows injecting records with controllable timing hooks."""
 
     def __init__(
         self,
         records: List[CSIRecord],
+        clock: Optional[ControlledClock] = None,
         stall_index: Optional[int] = None,
-        on_stall: Optional[Callable[[], None]] = None,
+        stall_gap: float = 12.0,
+        inter_frame_dt: float = 0.05,
     ) -> None:
         self._records = list(records)
+        self._clock = clock
         self._stall_index = stall_index
-        self._on_stall = on_stall
+        self._stall_gap = stall_gap
+        self._inter_frame_dt = inter_frame_dt
         self._is_open = False
         self._idx = 0
 
@@ -100,11 +117,14 @@ class ControlledTimeSource(CSIRecordSource):
     def read_record(self, timeout: Optional[float] = None) -> Optional[CSIRecord]:
         if not self._is_open:
             raise RuntimeError("Source is not open")
-        if self._stall_index is not None and self._idx == self._stall_index and self._on_stall:
-            self._on_stall()
+        if self._stall_index is not None and self._idx == self._stall_index and self._clock is not None:
+            # Advance injected clock by stall_gap (at least twice disconnected_after_seconds = 5.0s)
+            self._clock.advance(self._stall_gap)
         if self._idx < len(self._records):
             rec = self._records[self._idx]
             self._idx += 1
+            if self._clock is not None:
+                self._clock.advance(self._inter_frame_dt)
             return rec
         return None
 
@@ -286,7 +306,8 @@ def test_full_synthetic_application_run(tmp_path: Path) -> None:
     )
     ws_cfg = WebSocketConfig(host="127.0.0.1", port=0)
 
-    app = Application(config=cfg, ws_config=ws_cfg)
+    clock = ControlledClock(start=1000.0)
+    app = Application(config=cfg, ws_config=ws_cfg, clock=clock)
 
     # run_id format verification (<mode>-<UTC yyyymmddThhmmssZ>-<8 hex>)
     pattern = r"^synthetic-\d{8}T\d{6}Z-[0-9a-f]{8}$"
@@ -351,8 +372,8 @@ def test_full_synthetic_application_run(tmp_path: Path) -> None:
             assert ev.window_latency_ms == pytest.approx(1000.0, rel=1e-3)
             assert ev.pipeline_latency_ms is None  # Fast non-realtime run
 
-    # 3. Verify Health snapshot reports active source
-    health = app.health_monitor.get_current_health(current_time=app._last_record_timestamp)
+    # 3. Verify Health snapshot reports active source through app.get_health()
+    health = app.get_health()
     assert health.csi_source_status == "active"
 
     # 4. Verify clean shutdown
@@ -438,14 +459,16 @@ def test_full_synthetic_application_run_legacy_zone(tmp_path: Path) -> None:
 # Requirement C: Startup Validation (Hardware Mode)
 # ==============================================================================
 
-def test_hardware_mode_missing_motion_config_raises_error() -> None:
+def test_hardware_mode_missing_motion_config_raises_error(tmp_path: Path) -> None:
     """Verify hardware mode refuses to start without explicit motion_config_path."""
     cfg = AppConfig(
         csi_source_mode="hardware",
         serial_port="COM4",
         motion_config_path=None,
+        database_path=str(tmp_path / "missing_motion.db"),
     )
-    app = Application(config=cfg)
+    ws_cfg = WebSocketConfig(port=0)
+    app = Application(config=cfg, ws_config=ws_cfg)
     with pytest.raises(
         ValueError,
         match=r"In hardware mode, motion_config_path must be explicitly set",
@@ -453,7 +476,7 @@ def test_hardware_mode_missing_motion_config_raises_error() -> None:
         app.run()
 
 
-def test_hardware_mode_subcarrier_mismatch_fails_fast() -> None:
+def test_hardware_mode_subcarrier_mismatch_fails_fast(tmp_path: Path) -> None:
     """Verify profile subcarrier mismatch fails fast naming both numbers."""
     frames = _build_fake_frames(subcarrier_count=2, count=5)
     fake_ser = FakeSerial(initial_data=frames)
@@ -464,8 +487,10 @@ def test_hardware_mode_subcarrier_mismatch_fails_fast() -> None:
         serial_port="COM4",
         motion_config_path=str(CONFIG_DIR / "motion_detection_config.json"),
         calibration_profile_path=str(CONFIG_DIR / "calibration_profiles" / "default_calibration.json"),
+        database_path=str(tmp_path / "subcarrier_mismatch.db"),
     )
-    app = Application(config=cfg, serial_factory=lambda port, baud, timeout: fake_ser)
+    ws_cfg = WebSocketConfig(port=0)
+    app = Application(config=cfg, ws_config=ws_cfg, serial_factory=lambda port, baud, timeout: fake_ser)
 
     with pytest.raises(
         ValueError,
@@ -526,24 +551,19 @@ def test_hardware_no_zone_mode_runs_cleanly(tmp_path: Path) -> None:
 # ==============================================================================
 
 def test_stall_resets_pipeline_state_message_v1(tmp_path: Path) -> None:
-    """Verify gap longer than disconnected_after_seconds resets pipeline, requiring W new records."""
+    """Verify gap longer than disconnected_after_seconds resets pipeline and v1 publishes nothing during gap."""
     scenario_path = CONFIG_DIR / "synthetic_scenarios" / "example.json"
     with SyntheticCSISource(ScenarioConfig.from_json_file(scenario_path)) as src:
         base_records = list(src)
 
     # 25 records with normal delta (0.05s) -> 6 feature vectors
     batch1 = base_records[:25]
-    # Record 26 arrives after a 10.0s gap
-    stalled_record = dataclasses.replace(
-        batch1[0],
-        timestamp=batch1[-1].timestamp + 10.0,
-        sequence_number=100,
-    )
+    # Gap size: 12.0s (at least twice disconnected_after_seconds = 5.0s)
     # Next 10 records after gap (not enough to fill window of 20)
     batch2 = [
         dataclasses.replace(
-            batch1[0],
-            timestamp=stalled_record.timestamp + (i + 1) * 0.05,
+            base_records[25 + i],
+            timestamp=base_records[24].timestamp + 12.0 + (i + 1) * 0.05,
             sequence_number=101 + i,
         )
         for i in range(10)
@@ -551,14 +571,14 @@ def test_stall_resets_pipeline_state_message_v1(tmp_path: Path) -> None:
     # Next 15 records (reaches 25 new records total after gap -> 6 new feature vectors)
     batch3 = [
         dataclasses.replace(
-            batch1[0],
+            base_records[35 + i],
             timestamp=batch2[-1].timestamp + (i + 1) * 0.05,
             sequence_number=111 + i,
         )
         for i in range(15)
     ]
 
-    all_records = batch1 + [stalled_record] + batch2 + batch3
+    all_records = batch1 + batch2 + batch3
 
     cfg = AppConfig(
         csi_source_mode="synthetic",
@@ -569,60 +589,26 @@ def test_stall_resets_pipeline_state_message_v1(tmp_path: Path) -> None:
     )
     ws_cfg = WebSocketConfig(host="127.0.0.1", port=0)
 
-    def trigger_stall() -> None:
-        # Step last_record_host_time back by 5.0 seconds (disconnected_after_seconds = 2.0)
-        app._last_record_host_time = time.time() - 5.0
-
-    source = ControlledTimeSource(all_records, stall_index=25, on_stall=trigger_stall)
-    app = Application(config=cfg, ws_config=ws_cfg, source=source)
-
-    records_processed = app.run()
-    assert records_processed == len(all_records)
-
-    with SQLiteDatabaseManager(DatabaseConfig(database_path=str(tmp_path / "stall_v1.db"))) as db:
-        events = db.query_by_run_id(run_id=app.run_id)
-        # batch1 (25) -> 6 vectors
-        # gap resets runner -> batch2 (10) + batch3 (15) + stalled_record (1) = 26 records -> 26 - 20 + 1 = 7 vectors
-        # Total = 6 + 7 = 13 vectors! (If window straddled gap, it would be 51 - 20 + 1 = 32 vectors)
-        assert len(events) == 13
-
-
-def test_stall_legacy_zone_emits_all_false(tmp_path: Path) -> None:
-    """Verify stall in legacy_zone mode emits all-false once to connected clients."""
-    scenario_path = CONFIG_DIR / "synthetic_scenarios" / "example.json"
-    with SyntheticCSISource(ScenarioConfig.from_json_file(scenario_path)) as src:
-        base_records = list(src)[:25]
-
-    cfg = AppConfig(
-        csi_source_mode="synthetic",
-        synthetic_scenario_path=str(CONFIG_DIR / "synthetic_scenarios" / "example.json"),
-        calibration_profile_path=str(CONFIG_DIR / "calibration_profiles" / "default_calibration.json"),
-        motion_config_path=str(CONFIG_DIR / "motion_detection_config.json"),
-        database_path=str(tmp_path / "stall_legacy.db"),
-    )
-    ws_cfg = WebSocketConfig(host="127.0.0.1", port=0, message_format="legacy_zone")
-
-    def trigger_stall() -> None:
-        app._last_record_host_time = time.time() - 5.0
-
-    source = ControlledTimeSource(base_records, stall_index=22, on_stall=trigger_stall)
-    app = Application(config=cfg, ws_config=ws_cfg, source=source)
+    clock = ControlledClock(start=1000.0)
+    # Gap size: 12.0s (at least twice disconnected_after_seconds = 5.0s)
+    source = ControlledTimeSource(all_records, clock=clock, stall_index=25, stall_gap=12.0)
+    app = Application(config=cfg, ws_config=ws_cfg, source=source, clock=clock)
 
     app.publisher.start()
     port = app.publisher.actual_port
     assert port is not None
 
     received_messages: List[str] = []
-    client_connected = threading.Event()
+    connected_event = threading.Event()
     client_done = threading.Event()
 
     def ws_client_worker() -> None:
         try:
             with ws_client.connect(f"ws://127.0.0.1:{port}") as client:
-                client_connected.set()
+                connected_event.set()
                 while not client_done.is_set():
                     try:
-                        msg = client.recv(timeout=0.2)
+                        msg = client.recv(timeout=0.05)
                         received_messages.append(msg)
                     except TimeoutError:
                         continue
@@ -633,18 +619,193 @@ def test_stall_legacy_zone_emits_all_false(tmp_path: Path) -> None:
 
     client_thread = threading.Thread(target=ws_client_worker, daemon=True)
     client_thread.start()
-    assert client_connected.wait(timeout=3.0)
+    assert connected_event.wait(timeout=3.0)
 
     records_processed = app.run()
-    assert records_processed == 25
+    assert records_processed == len(all_records)
 
-    time.sleep(0.1)
+    time.sleep(0.05)
     client_done.set()
     client_thread.join(timeout=2.0)
 
-    # Check that all-false was emitted during stall
-    all_false_msgs = [m for m in received_messages if json.loads(m).get("occupied") is False]
-    assert len(all_false_msgs) >= 1
+    # batch1 (25 records) -> 6 vectors
+    # stall occurs at record 25 -> gap of 12.0s resets runner.
+    # In state_message_v1 wire format, NOTHING is published during the stall gap.
+    # batch2 (10 records) -> window warmup (10/20), 0 vectors
+    # batch3 (15 records) -> total 25 records after gap -> 25 - 20 + 1 = 6 vectors
+    # Total received messages = 6 + 6 = 12 messages (if window straddled gap, it would be 50 - 20 + 1 = 31 messages)
+    assert len(received_messages) == 12
+
+    with SQLiteDatabaseManager(DatabaseConfig(database_path=str(tmp_path / "stall_v1.db"))) as db:
+        events = db.query_by_run_id(run_id=app.run_id)
+        assert len(events) == 12
+
+
+def test_stall_legacy_zone_emits_all_false(tmp_path: Path) -> None:
+    """Verify stall in legacy_zone mode with occupied zone emits exactly one extra all-false burst."""
+    scenario_path = CONFIG_DIR / "synthetic_scenarios" / "example.json"
+    with SyntheticCSISource(ScenarioConfig.from_json_file(scenario_path)) as src:
+        # Frames 95..125 contain the active Zone 2 walkthrough (Zone 2 occupied at frame 112+)
+        base_records = list(src)[95:125]
+
+    def run_legacy_flow(with_stall: bool) -> List[dict[str, Any]]:
+        clock = ControlledClock(start=1000.0)
+        # Gap size: 12.0s (at least twice disconnected_after_seconds = 5.0s)
+        source = ControlledTimeSource(
+            base_records,
+            clock=clock,
+            stall_index=22 if with_stall else None,
+            stall_gap=12.0,
+        )
+        db_file = tmp_path / f"stall_legacy_{'with' if with_stall else 'without'}.db"
+        cfg = AppConfig(
+            csi_source_mode="synthetic",
+            synthetic_scenario_path=str(scenario_path),
+            calibration_profile_path=str(CONFIG_DIR / "calibration_profiles" / "default_calibration.json"),
+            motion_config_path=str(CONFIG_DIR / "motion_detection_config.json"),
+            database_path=str(db_file),
+        )
+        ws_cfg = WebSocketConfig(host="127.0.0.1", port=0, message_format="legacy_zone")
+        app = Application(config=cfg, ws_config=ws_cfg, source=source, clock=clock)
+
+        app.publisher.start()
+        port = app.publisher.actual_port
+        assert port is not None
+
+        received_raw: List[str] = []
+        client_connected = threading.Event()
+        client_done = threading.Event()
+
+        def ws_client_worker() -> None:
+            try:
+                with ws_client.connect(f"ws://127.0.0.1:{port}") as client:
+                    client_connected.set()
+                    while not client_done.is_set():
+                        try:
+                            msg = client.recv(timeout=0.1)
+                            received_raw.append(msg)
+                        except TimeoutError:
+                            continue
+                        except ConnectionClosed:
+                            break
+            finally:
+                client_done.set()
+
+        client_thread = threading.Thread(target=ws_client_worker, daemon=True)
+        client_thread.start()
+        assert client_connected.wait(timeout=3.0)
+
+        app.run()
+
+        time.sleep(0.05)
+        client_done.set()
+        client_thread.join(timeout=2.0)
+
+        return [json.loads(m) for m in received_raw]
+
+    stalled_msgs = run_legacy_flow(with_stall=True)
+    normal_msgs = run_legacy_flow(with_stall=False)
+
+    zone_count = 4  # N = 4 zones
+    all_false_burst = [{"zone": z, "occupied": False} for z in range(1, zone_count + 1)]
+
+    # 1. Connect snapshot (the first N messages)
+    assert stalled_msgs[:zone_count] == all_false_burst
+    assert normal_msgs[:zone_count] == all_false_burst
+
+    # 2. Shutdown flush (the last N messages)
+    assert stalled_msgs[-zone_count:] == all_false_burst
+    assert normal_msgs[-zone_count:] == all_false_burst
+
+    # 3. Intermediate messages between connect snapshot and shutdown flush
+    mid_stalled = stalled_msgs[zone_count:-zone_count]
+    mid_normal = normal_msgs[zone_count:-zone_count]
+
+    # Verify Zone 2 was occupied at stall time in both runs
+    assert {"zone": 2, "occupied": True} in mid_stalled
+    assert {"zone": 2, "occupied": True} in mid_normal
+
+    # In stalled run: exactly one extra all-false burst arrives in intermediate stream
+    assert mid_stalled == [{"zone": 2, "occupied": True}] + all_false_burst
+
+    # In normal run (without stall): extra all-false burst is completely absent
+    assert mid_normal == [{"zone": 2, "occupied": True}]
+
+
+def test_health_status_transitions_through_get_health(tmp_path: Path) -> None:
+    """Verify active, stale, and disconnected transitions via app.get_health() using injected clock."""
+    scenario_path = CONFIG_DIR / "synthetic_scenarios" / "example.json"
+    with SyntheticCSISource(ScenarioConfig.from_json_file(scenario_path)) as src:
+        single_record = [list(src)[0]]
+
+    clock = ControlledClock(start=1000.0)
+    source = ControlledTimeSource(single_record, clock=clock, inter_frame_dt=0.0)
+
+    cfg = AppConfig(
+        csi_source_mode="synthetic",
+        synthetic_scenario_path=str(scenario_path),
+        database_path=str(tmp_path / "health_check.db"),
+    )
+    ws_cfg = WebSocketConfig(port=0)
+    app = Application(config=cfg, ws_config=ws_cfg, source=source, clock=clock)
+
+    # Run application for 1 record at clock=1000.0
+    records = app.run()
+    assert records == 1
+
+    # 1. Active: age = 0.5s (< stale_after_seconds = 2.0s)
+    clock.advance(0.5)
+    h_active = app.get_health()
+    assert h_active.csi_source_status == "active"
+    assert h_active.csi_source_last_record_age_seconds == pytest.approx(0.5)
+
+    # 2. Stale: age = 3.0s (>= stale_after_seconds = 2.0s, < disconnected_after_seconds = 5.0s)
+    clock.advance(2.5)  # 0.5 + 2.5 = 3.0s
+    h_stale = app.get_health()
+    assert h_stale.csi_source_status == "stale"
+    assert h_stale.csi_source_last_record_age_seconds == pytest.approx(3.0)
+
+    # 3. Disconnected: age = 12.0s (>= disconnected_after_seconds = 5.0s)
+    clock.advance(9.0)  # 3.0 + 9.0 = 12.0s
+    h_disc = app.get_health()
+    assert h_disc.csi_source_status == "disconnected"
+    assert h_disc.csi_source_last_record_age_seconds == pytest.approx(12.0)
+
+
+def test_stop_midstream_preserves_all_processed_features(tmp_path: Path) -> None:
+    """Verify stopping application midstream flushes all produced feature vectors to SQLite."""
+    scenario_path = CONFIG_DIR / "synthetic_scenarios" / "example.json"
+    db_file = tmp_path / "midstream_stop.db"
+
+    cfg = AppConfig(
+        csi_source_mode="synthetic",
+        synthetic_scenario_path=str(scenario_path),
+        calibration_profile_path=str(CONFIG_DIR / "calibration_profiles" / "default_calibration.json"),
+        motion_config_path=str(CONFIG_DIR / "motion_detection_config.json"),
+        database_path=str(db_file),
+        db_flush_batch_size=50,  # Larger than produced rows to ensure teardown flushes buffer
+    )
+    ws_cfg = WebSocketConfig(port=0)
+    app = Application(config=cfg, ws_config=ws_cfg)
+
+    app_thread = threading.Thread(target=app.run, daemon=True)
+    app_thread.start()
+
+    # Wait until pipeline has processed at least 15 feature vectors midstream
+    while app.feature_vectors_processed < 15 and app_thread.is_alive():
+        time.sleep(0.001)
+
+    app.stop()
+    app_thread.join(timeout=3.0)
+    assert not app_thread.is_alive()
+
+    # Verify rows in database + dropped == feature_vectors_processed
+    with SQLiteDatabaseManager(DatabaseConfig(database_path=str(db_file))) as db:
+        rows = db.query_by_run_id(app.run_id)
+        assert len(rows) + app._dropped_db_rows == app.feature_vectors_processed
+        assert app.feature_vectors_processed >= 15
+        assert app.feature_vectors_processed < 281
+        assert not app.source.is_open
 
 
 # ==============================================================================

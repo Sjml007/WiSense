@@ -6,13 +6,14 @@ from pathlib import Path
 import pytest
 
 from wisense_backend.app import Application
+from wisense_backend.communication.websocket_server import WebSocketConfig
 from wisense_backend.config.app_config import AppConfig
 
 
 class TestApplicationSkeleton:
     """Validate Application skeleton lifecycle, wiring, and error handling."""
 
-    def test_smoke_synthetic_mode(self) -> None:
+    def test_smoke_synthetic_mode(self, tmp_path: Path) -> None:
         """Smoke test: Application runs against Section 1 example scenario, counts records, and exits."""
         scenario_path = (
             Path(__file__).resolve().parent.parent
@@ -25,11 +26,12 @@ class TestApplicationSkeleton:
         cfg = AppConfig(
             csi_source_mode="synthetic",
             synthetic_scenario_path=str(scenario_path),
+            database_path=str(tmp_path / "app_smoke.db"),
             log_level="INFO",
             log_format="text",
         )
 
-        app = Application(config=cfg)
+        app = Application(config=cfg, ws_config=WebSocketConfig(port=0))
         record_count = app.run()
 
         # In example.json: duration_seconds = 15.0, sample_rate_hz = 20.0 -> exactly 300 records
@@ -37,9 +39,10 @@ class TestApplicationSkeleton:
         # Check source is properly closed after run()
         assert not app.source.is_open
 
-    def test_smoke_default_system_config(self) -> None:
-        """Verify Application runs cleanly using default config resolution."""
-        app = Application()
+    def test_smoke_default_system_config(self, tmp_path: Path) -> None:
+        """Verify Application runs cleanly using default config resolution with test port and tmp db."""
+        cfg = AppConfig(database_path=str(tmp_path / "default_sys.db"))
+        app = Application(config=cfg, ws_config=WebSocketConfig(port=0))
         assert app.config.csi_source_mode == "synthetic"
         record_count = app.run()
         assert record_count == 300
@@ -56,7 +59,7 @@ class TestApplicationSkeleton:
                 log_level="INFO",
             )
 
-    def test_hardware_mode_instantiates_serial_source(self) -> None:
+    def test_hardware_mode_instantiates_serial_source(self, tmp_path: Path) -> None:
         """Verify csi_source_mode 'hardware' instantiates a SerialCSISource."""
         from wisense_backend.ingestion.serial_source import SerialCSISource
 
@@ -64,9 +67,10 @@ class TestApplicationSkeleton:
             csi_source_mode="hardware",
             serial_port="COM4",
             serial_baud_rate=921600,
+            database_path=str(tmp_path / "hw.db"),
             log_level="INFO",
         )
-        app = Application(config=cfg)
+        app = Application(config=cfg, ws_config=WebSocketConfig(port=0))
         assert isinstance(app.source, SerialCSISource)
         assert app.source.config.port == "COM4"
         assert app.source.config.baud_rate == 921600
@@ -91,9 +95,10 @@ class TestApplicationSkeleton:
         cfg = AppConfig(
             csi_source_mode="synthetic",
             synthetic_scenario_path=str(realtime_scenario_file),
+            database_path=str(tmp_path / "stop.db"),
         )
 
-        app = Application(config=cfg)
+        app = Application(config=cfg, ws_config=WebSocketConfig(port=0))
 
         # Trigger stop() shortly after starting in a background thread
         def trigger_stop() -> None:
@@ -116,6 +121,7 @@ class TestApplicationSkeleton:
         cfg = AppConfig(
             csi_source_mode="synthetic",
             synthetic_scenario_path=str(missing_scenario),
+            database_path=str(tmp_path / "missing.db"),
         )
         with pytest.raises(FileNotFoundError, match="Scenario configuration file not found"):
-            Application(config=cfg)
+            Application(config=cfg, ws_config=WebSocketConfig(port=0))

@@ -24,6 +24,7 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+data/*.db
 backend_pipeline/data/*.db
 !backend_pipeline/data/.gitkeep
 

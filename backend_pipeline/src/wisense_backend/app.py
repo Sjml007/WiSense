@@ -115,8 +115,10 @@ class Application:
         self.logger.info("Application initialized with run_id: %s", self.run_id, extra={"run_id": self.run_id})
 
         self._stop_requested = threading.Event()
+        self._completed_event = threading.Event()
         self._shutdown_lock = threading.RLock()
         self._is_shutdown = False
+        self._is_running = False
 
         # Diagnostic counters
         self._record_count: int = 0
@@ -124,6 +126,7 @@ class Application:
         self._publisher_errors: int = 0
         self._source_errors: int = 0
         self._dropped_db_rows: int = 0
+        self._feature_vectors_processed: int = 0
 
         self._last_record_timestamp: Optional[float] = None
         self._last_record_host_time: Optional[float] = None
@@ -135,8 +138,10 @@ class Application:
         self._last_db_flush_time: float = 0.0
         self._interval_variances: list[float] = []
 
-        # Database batch buffer
+        # Database batch buffer & synchronization lock
         self._db_buffer: list[EventLogRecord] = []
+        self._db_lock = threading.Lock()
+        self._motion_calibrated: bool = True
 
         resolved_config_dir = self._resolve_dir_path(self.config.config_dir)
 
@@ -190,7 +195,7 @@ class Application:
             else HealthMonitorConfig()
         )
         self.health_monitor: SystemHealthMonitor = SystemHealthMonitor(health_cfg)
-        self.health_monitor.register_csi_source_probe(lambda: self._last_record_timestamp)
+        self.health_monitor.register_csi_source_probe(lambda: self._last_record_host_time)
         self.health_monitor.register_database_probe(
             lambda: "connected" if (self.db_manager and self.db_manager.is_connected) else "disconnected"
         )
@@ -296,13 +301,20 @@ class Application:
             )
 
         # 3. Motion detection stage
+        self._motion_calibrated = True
         if self.config.motion_config_path:
             resolved_motion_path = self._resolve_file_path(self.config.motion_config_path)
-            motion_cfg = ThresholdMotionConfig.from_json_file(resolved_motion_path)
+            with open(resolved_motion_path, "r", encoding="utf-8") as f:
+                motion_dict = json.load(f)
+            self._motion_calibrated = bool(motion_dict.get("calibrated", True))
+            motion_cfg = ThresholdMotionConfig.from_dict(motion_dict)
         else:
             motion_path = config_dir / "motion_detection_config.json"
             if motion_path.is_file():
-                motion_cfg = ThresholdMotionConfig.from_json_file(motion_path)
+                with open(motion_path, "r", encoding="utf-8") as f:
+                    motion_dict = json.load(f)
+                self._motion_calibrated = bool(motion_dict.get("calibrated", True))
+                motion_cfg = ThresholdMotionConfig.from_dict(motion_dict)
             else:
                 motion_cfg = ThresholdMotionConfig(
                     enter_threshold=0.10,
@@ -395,28 +407,38 @@ class Application:
 
         raise ValueError(f"Unsupported csi_source_mode: {self.config.csi_source_mode}")
 
+    @property
+    def feature_vectors_processed(self) -> int:
+        """Return the total number of feature vectors produced by the pipeline."""
+        return self._feature_vectors_processed
+
     def get_health(self) -> SystemHealth:
         """Return the current SystemHealth telemetry snapshot."""
         return self.health_monitor.get_current_health(self._clock())
 
     def _flush_db(self) -> None:
-        """Flush buffered EventLogRecords to SQLite persistence."""
-        if not self._db_buffer or self.db_manager is None:
-            self._last_db_flush_time = self._clock()
-            return
+        """Flush buffered EventLogRecords to SQLite persistence using swap-buffer pattern."""
+        with self._db_lock:
+            if not self._db_buffer or self.db_manager is None:
+                self._last_db_flush_time = self._clock()
+                return
+            batch = list(self._db_buffer)
+            self._db_buffer.clear()
 
-        batch_count = len(self._db_buffer)
+        batch_count = len(batch)
         try:
-            self.db_manager.insert_events_batch(self._db_buffer)
+            self.db_manager.insert_events_batch(batch)
         except Exception as exc:
             self._dropped_db_rows += batch_count
             self.logger.error("Failed to insert %d event log records into database: %s", batch_count, exc)
         finally:
-            self._db_buffer.clear()
             self._last_db_flush_time = self._clock()
 
     def _log_periodic_stats(self) -> None:
         """Log periodic statistics line over the elapsed interval."""
+        if self.config.csi_source_mode == "hardware" and not self._motion_calibrated:
+            self.logger.warning("Hardware motion detection thresholds remain uncalibrated ('calibrated': false).")
+
         if self._interval_variances:
             min_v = min(self._interval_variances)
             mean_v = sum(self._interval_variances) / len(self._interval_variances)
@@ -447,15 +469,21 @@ class Application:
         self._interval_variances.clear()
         self._last_stat_log_time = self._clock()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 5.0) -> None:
         """Signal the application to halt the ingestion loop and close resources.
 
-        Shutdown order:
-        Stop signal -> stop reading -> bridge.close() (legacy) -> flush database ->
-        close the source -> bounded flush -> publisher.stop().
-        Idempotent and safe if called from another thread.
+        External stop() sets the stop event and waits boundedly for run()'s finally
+        block to perform the teardown as the single owner. If run() is not active,
+        executes teardown directly. Idempotent and thread-safe.
         """
         self._stop_requested.set()
+        if self._is_running:
+            self._completed_event.wait(timeout=timeout)
+        else:
+            self._teardown()
+
+    def _teardown(self) -> None:
+        """Teardown single owner: cleans up resources in strict dependency order."""
         with self._shutdown_lock:
             if self._is_shutdown:
                 return
@@ -527,6 +555,8 @@ class Application:
             resolved_dir = self._resolve_dir_path(self.config.config_dir)
             self.runner = self._build_runner(resolved_dir)
 
+        self._is_running = True
+        self._completed_event.clear()
         self._stop_requested.clear()
         self._is_shutdown = False
         self._record_count = 0
@@ -534,6 +564,7 @@ class Application:
         self._publisher_errors = 0
         self._source_errors = 0
         self._dropped_db_rows = 0
+        self._feature_vectors_processed = 0
 
         self.logger.info(
             "Application starting up (mode: %s, run_id: %s, wire_format: %s)",
@@ -546,6 +577,12 @@ class Application:
                 "wire_format": self._wire_format,
             },
         )
+
+        if self.config.csi_source_mode == "hardware" and not self._motion_calibrated:
+            self.logger.warning(
+                "Hardware motion detection thresholds are marked uncalibrated ('calibrated': false). "
+                "Run empirical baseline tuning before production deployment."
+            )
 
         # 1. Start WebSocket publisher if not already running
         if self.publisher is not None and not self.publisher.is_running:
@@ -673,6 +710,7 @@ class Application:
                     if result is None:
                         continue
 
+                    self._feature_vectors_processed += 1
                     self._interval_variances.append(result.feature.aggregate_variance)
 
                     # Publish state BEFORE database work (decoupling latency from disk)
@@ -703,15 +741,19 @@ class Application:
                         window_latency_ms=window_latency_ms,
                         pipeline_latency_ms=pipe_lat,
                     )
-                    self._db_buffer.append(event_rec)
-                    if len(self._db_buffer) >= self.config.db_flush_batch_size:
+                    with self._db_lock:
+                        self._db_buffer.append(event_rec)
+                        should_flush = len(self._db_buffer) >= self.config.db_flush_batch_size
+                    if should_flush:
                         self._flush_db()
 
         except Exception as exc:
             self.logger.error("Exception in application execution: %s", exc, exc_info=True)
             raise
         finally:
+            self._is_running = False
             self._log_periodic_stats()
-            self.stop()
+            self._teardown()
+            self._completed_event.set()
 
         return self._record_count

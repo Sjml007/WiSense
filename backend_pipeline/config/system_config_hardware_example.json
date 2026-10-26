@@ -9,7 +9,7 @@
   "serial_baud_rate": 921600,
   "config_dir": "config",
   "calibration_profile_path": null,
-  "motion_config_path": "config/motion_detection_config_hardware.json",
+  "motion_config_path": "config/motion_detection_config_hardware.example.json",
   "expected_sample_rate_hz": 100.0,
   "health_log_interval_seconds": 10.0,
   "stat_log_interval_seconds": 5.0,
