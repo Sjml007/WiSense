@@ -310,10 +310,11 @@ class WebSocketStatePublisher:
             # Safe zero-client no-op: no broadcast overhead
             return
 
-        try:
-            ws_server.broadcast(active_clients, payload)
-        except Exception as e:
-            logger.warning("Broadcast encountered exception: %s", e)
+        for client in active_clients:
+            try:
+                client.send(payload)
+            except Exception as e:
+                logger.debug("Broadcast encountered exception: %s", e)
 
     def publish(self, message: StateMessage) -> None:
         """Broadcast a StateMessage to all currently connected clients.
@@ -348,10 +349,11 @@ class WebSocketStatePublisher:
 
         # Broadcast payload across all active connections.
         # ws_server.broadcast skips non-open connections and isolates write errors.
-        try:
-            ws_server.broadcast(active_clients, payload)
-        except Exception as e:
-            logger.warning("Broadcast encountered exception: %s", e)
+        for client in active_clients:
+            try:
+                client.send(payload)
+            except Exception as e:
+                logger.debug("Broadcast send exception: %s", e)
 
     def _handle_client(self, websocket: ServerConnection) -> None:
         """Handle an incoming client connection lifecycle.
